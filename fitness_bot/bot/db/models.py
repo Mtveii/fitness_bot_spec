@@ -166,3 +166,14 @@ class WeightHistory(Base):
     weight_kg = Column(Float, nullable=False)
 
     user = relationship("User", back_populates="weight_history")
+
+
+class AIUsageLog(Base):
+    __tablename__ = "ai_usage_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    provider = Column(String(20), nullable=False)
+    tokens_in = Column(Integer, default=0)
+    tokens_out = Column(Integer, default=0)
+    timestamp = Column(DateTime, default=_utcnow)

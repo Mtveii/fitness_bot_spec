@@ -9,3 +9,5 @@ groq
 httpx
 Pillow
 python-dotenv
+aiohttp
+thefuzz

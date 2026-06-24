@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 import logging
 from datetime import date
 from pathlib import Path
@@ -34,7 +35,7 @@ def _state_path(user_id: int) -> Path:
     return STATE_DIR / f"today_{user_id}.json"
 
 
-def _load_file_state(user_id: int) -> dict:
+def _load_file_state_sync(user_id: int) -> dict:
     path = _state_path(user_id)
     if path.exists():
         try:
@@ -44,9 +45,17 @@ def _load_file_state(user_id: int) -> dict:
     return _default_today()
 
 
-def _save_file_state(user_id: int, data: dict):
+async def _load_file_state(user_id: int) -> dict:
+    return await asyncio.to_thread(_load_file_state_sync, user_id)
+
+
+def _save_file_state_sync(user_id: int, data: dict):
     path = _state_path(user_id)
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+async def _save_file_state(user_id: int, data: dict):
+    await asyncio.to_thread(_save_file_state_sync, user_id, data)
 
 
 def _default_today() -> dict:
@@ -87,7 +96,7 @@ async def get_today_state(user_id: int) -> dict:
         except Exception as e:
             logger.warning(f"Redis error: {e}")
 
-    return _load_file_state(user_id)
+    return await _load_file_state(user_id)
 
 
 async def update_today_state(user_id: int, **kwargs) -> dict:
@@ -108,12 +117,12 @@ async def update_today_state(user_id: int, **kwargs) -> dict:
         except Exception as e:
             logger.warning(f"Redis error: {e}")
 
-    state = _load_file_state(user_id)
+    state = await _load_file_state(user_id)
     for k, v in kwargs.items():
         if k in state:
             state[k] = v
     state["balance"] = state["calories_in"] - state["calories_out"]
-    _save_file_state(user_id, state)
+    await _save_file_state(user_id, state)
     return state
 
 
@@ -178,3 +187,42 @@ async def add_chat_message(user_id: int, role: str, content: str) -> None:
         path.write_text(json.dumps(msgs, ensure_ascii=False), encoding="utf-8")
     except Exception:
         pass
+
+
+# ─── Context Cache (P2.11) ──────────────────────────────────
+
+
+async def get_cached_context(user_id: int) -> dict | None:
+    if USE_REDIS:
+        try:
+            data = await redis.get(f"ctx:{user_id}")
+            if data:
+                return json.loads(data)
+        except Exception as e:
+            logger.warning(f"Redis error: {e}")
+    return None
+
+
+async def set_cached_context(user_id: int, ctx: dict, ttl: int = 45) -> None:
+    if USE_REDIS:
+        try:
+            await redis.set(f"ctx:{user_id}", json.dumps(ctx, default=str), ex=ttl)
+        except Exception as e:
+            logger.warning(f"Redis error: {e}")
+
+
+async def invalidate_context(user_id: int) -> None:
+    if USE_REDIS:
+        try:
+            await redis.delete(f"ctx:{user_id}")
+        except Exception as e:
+            logger.warning(f"Redis error: {e}")
+
+
+# ─── Decrement Today State (P4.17) ──────────────────────────
+
+
+async def decrement_today_state(user_id: int, **kwargs) -> dict:
+    current = await get_today_state(user_id)
+    deltas = {k: current.get(k, 0) - v for k, v in kwargs.items() if k in current}
+    return await update_today_state(user_id, **deltas)

@@ -1,4 +1,6 @@
 import os
+import signal
+import asyncio
 import logging
 from dotenv import load_dotenv
 from telegram import Update
@@ -15,12 +17,16 @@ from bot.handlers.workout import get_new_workout_handler, get_log_workout_handle
 from bot.handlers.commands import (
     get_today_handler, get_weight_handler, get_sleep_handler,
     get_steps_handler, get_week_handler, get_settings_handler,
+    get_cancel_handler, get_export_handler,
 )
 from bot.scheduler.reminders import scheduler
 from apscheduler.triggers.cron import CronTrigger
 from bot.cache.redis_client import get_today_state, update_today_state
+from bot.queue.throttle import debounce_message, is_rate_limited
 
 load_dotenv()
+
+ADMIN_ID = 5149883442
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -56,6 +62,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/sleep [отбой] [подъём] — записать сон\n"
         "/steps [n] — записать шаги\n"
         "/week — недельный отчёт\n"
+        "/cancel — отменить последнее действие\n"
+        "/export — экспорт данных за неделю (CSV)\n"
         "/settings — настройки\n\n"
         "📸 Отправь фото еды — распознаю\n"
         "💬 Просто пиши — я понимаю контекст!\n"
@@ -102,6 +110,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             source="ai",
         )
 
+    from bot.cache.redis_client import invalidate_context
+    await invalidate_context(update.effective_user.id)
+
     await update_today_state(
         update.effective_user.id,
         calories_in=result["calories"],
@@ -136,24 +147,97 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text.strip()
+    user_id = update.effective_user.id
+    chat = update.message.chat
 
-    await update.message.chat.send_action("typing")
+    # Debounce: быстрые подряд-сообщения склеиваются в один запрос к ИИ (P1.8)
+    await debounce_message(user_id, text, lambda uid, t: _send_ai_reply(chat, uid, t, context.bot))
 
-    from bot.ai.trainer import chat_with_trainer
-    answer = await chat_with_trainer(update.effective_user.id, text)
-    await update.message.reply_text(answer)
+
+_last_admin_alert: dict[int, float] = {}
+ADMIN_ALERT_COOLDOWN = 300  # 5 минут
+
+
+async def _send_ai_reply(chat, user_id: int, text: str, bot) -> None:
+    """Реальный вызов ИИ с поддержанием 'печатает...' пока думает (P2.10)."""
+    if is_rate_limited(user_id):
+        await chat.send_message("⏳ Слишком много сообщений подряд, подожди немного.")
+        return
+
+    stop_typing = asyncio.Event()
+
+    async def _keep_typing():
+        while not stop_typing.is_set():
+            try:
+                await chat.send_action("typing")
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(stop_typing.wait(), timeout=4.0)
+            except asyncio.TimeoutError:
+                continue
+
+    typing_task = asyncio.create_task(_keep_typing())
+    try:
+        from bot.ai.trainer import chat_with_trainer
+        answer = await chat_with_trainer(user_id, text)
+    finally:
+        stop_typing.set()
+        typing_task.cancel()
+
+    if answer is None:
+        # P3.14: admin alert
+        import time
+        now = time.monotonic()
+        last = _last_admin_alert.get(user_id, 0)
+        if now - last > ADMIN_ALERT_COOLDOWN:
+            _last_admin_alert[user_id] = now
+            try:
+                await bot.send_message(ADMIN_ID, f"🔴 Оба ИИ-провайдера упали для user {user_id}")
+            except Exception:
+                pass
+        await chat.send_message("⚠️ ИИ временно недоступен, попробуй позже.")
+        return
+
+    await chat.send_message(answer)
+
+
+# ─── P3.15: Health check ────────────────────────────────────
+
+async def health(request):
+    from aiohttp import web
+    return web.json_response({"status": "ok"})
+
+
+async def start_health_server():
+    from aiohttp import web
+    app = web.Application()
+    app.router.add_get("/health", health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8080)
+    await site.start()
+    logger.info("Health check server started on :8080")
 
 
 async def post_init(app):
     await init_db()
     scheduler.start()
+    await start_health_server()
 
     from bot.scheduler.reminders import reset_all_today_states
     async def midnight_reset():
         await reset_all_today_states(app.bot)
     scheduler.add_job(midnight_reset, CronTrigger(hour=0, minute=5), id="midnight_reset", replace_existing=True)
 
-    logger.info("Database initialized, scheduler started")
+    logger.info("Database initialized, scheduler started, health check running")
+
+
+async def post_shutdown(app):
+    from bot.cache.redis_client import redis
+    if redis:
+        await redis.close()
+    logger.info("Graceful shutdown complete")
 
 
 def main() -> None:
@@ -165,6 +249,7 @@ def main() -> None:
         ApplicationBuilder()
         .token(token)
         .post_init(post_init)
+        .post_shutdown(post_shutdown)
         .build()
     )
 
@@ -175,6 +260,8 @@ def main() -> None:
     app.add_handler(get_me_handler())
 
     app.add_handler(get_food_handler())
+    app.add_handler(get_cancel_handler())
+    app.add_handler(get_export_handler())
 
     app.add_handler(get_new_workout_handler())
     app.add_handler(get_log_workout_handler())
@@ -190,7 +277,11 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     logger.info("Bot started")
-    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    app.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+        stop_signals=(signal.SIGTERM, signal.SIGINT),
+    )
 
 
 if __name__ == "__main__":

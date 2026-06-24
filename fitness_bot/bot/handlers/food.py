@@ -13,6 +13,7 @@ from bot.db.models import User
 from bot.cache.redis_client import get_today_state, update_today_state
 from bot.calculators.tdee import bmr, tdee
 from bot.calculators.nutrition import daily_targets
+from bot.ai.clients import ask_ai_race
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ CACHE_PATH = os.path.join(DATA_DIR, "food_cache.json")
 USDA_LOCAL_PATH = os.path.join(DATA_DIR, "usda_foods.json")
 
 _food_cache = {}
+_cache_lock = asyncio.Lock()
 if os.path.exists(CACHE_PATH):
     with open(CACHE_PATH, "r", encoding="utf-8") as f:
         _food_cache = json.load(f)
@@ -36,10 +38,16 @@ if os.path.exists(USDA_LOCAL_PATH):
         _usda_names = [item["name"] for item in _usda_local]
 
 
-def _save_cache():
+def _write_cache_sync():
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(CACHE_PATH, "w", encoding="utf-8") as f:
         json.dump(_food_cache, f, ensure_ascii=False, indent=2)
+
+
+async def _save_cache():
+    """Async + lock: убирает блокировку event loop и гонку записи (P1.5, P1.6)."""
+    async with _cache_lock:
+        await asyncio.to_thread(_write_cache_sync)
 
 
 def search_food_local(query: str) -> dict | None:
@@ -107,7 +115,7 @@ async def search_food_usda(query: str) -> dict | None:
 
         # Кэшируем
         _food_cache[query.lower().strip()] = result
-        _save_cache()
+        await _save_cache()
 
         return result
 
@@ -117,7 +125,8 @@ async def search_food_usda(query: str) -> dict | None:
 
 
 async def estimate_food_with_ai(food_name: str) -> dict | None:
-    """Оценивает КБЖУ через Groq (основной) или Gemini (fallback)."""
+    """Оценивает КБЖУ: Groq и Gemini запускаются параллельно, берём первый ответ (P0.1)."""
+    system = "Ты эксперт по нутрициологии. Отвечай только в формате JSON."
     prompt = (
         f"Оцени КБЖУ продукта «{food_name}» на 100г.\n"
         "Если это бренд/ресторан — оцени по известным данным.\n"
@@ -126,43 +135,14 @@ async def estimate_food_with_ai(food_name: str) -> dict | None:
         '{"calories": число, "protein": число, "fat": число, "carbs": число}'
     )
 
-    # Groq (основной)
-    groq_key = os.getenv("GROQ_API_KEY", "")
-    if groq_key:
-        try:
-            import groq
-            client = groq.AsyncGroq(api_key=groq_key)
-            response = await client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=200,
-                temperature=0.3,
-            )
-            text = response.choices[0].message.content.strip()
-            return _parse_food_json(text, food_name)
-        except Exception as e:
-            logger.warning(f"Groq food estimate failed: {e}")
-
-    # Gemini (fallback)
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
-    if gemini_key:
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel("gemini-2.0-flash")
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None, lambda: model.generate_content(prompt)
-            )
-            text = response.text.strip()
-            return _parse_food_json(text, food_name)
-        except Exception as e:
-            logger.warning(f"Gemini food estimate failed: {e}")
-
-    return None
+    result = await ask_ai_race(system, prompt, max_tokens=200)
+    if not result:
+        return None
+    text = result[0]
+    return await _parse_food_json(text, food_name)
 
 
-def _parse_food_json(text: str, food_name: str) -> dict | None:
+async def _parse_food_json(text: str, food_name: str) -> dict | None:
     """Парсит JSON из ответа ИИ."""
     # Убираем markdown code blocks
     if "```" in text:
@@ -176,7 +156,7 @@ def _parse_food_json(text: str, food_name: str) -> dict | None:
         if all(k in result for k in ("calories", "protein", "fat", "carbs")):
             if all(isinstance(result[k], (int, float)) for k in ("calories", "protein", "fat", "carbs")):
                 _food_cache[food_name.lower().strip()] = result
-                _save_cache()
+                await _save_cache()
                 return result
     except json.JSONDecodeError:
         # Пытаемся найти JSON в тексте
@@ -186,7 +166,7 @@ def _parse_food_json(text: str, food_name: str) -> dict | None:
                 result = json.loads(match.group())
                 if all(k in result for k in ("calories", "protein", "fat", "carbs")):
                     _food_cache[food_name.lower().strip()] = result
-                    _save_cache()
+                    await _save_cache()
                     return result
             except json.JSONDecodeError:
                 pass
@@ -205,7 +185,7 @@ async def search_food(query: str) -> dict | None:
     result = search_food_local(query)
     if result:
         _food_cache[key] = result
-        _save_cache()
+        await _save_cache()
         return result
 
     # 3. USDA API

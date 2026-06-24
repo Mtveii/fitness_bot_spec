@@ -16,8 +16,15 @@ services:
     command: python -m bot.main
     env_file:
       - .env
+    ports:
+      - "8080:8080"
     depends_on:
       redis:
         condition: service_healthy
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 15s
+      timeout: 3s
+      retries: 3

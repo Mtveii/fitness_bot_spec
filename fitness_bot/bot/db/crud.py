@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from bot.db.models import (
     User, WorkoutProgram, Exercise, WorkoutLog, ExerciseSet,
-    MealLog, FoodItem, SleepLog, SupplementLog, WeightHistory
+    MealLog, FoodItem, SleepLog, SupplementLog, WeightHistory, AIUsageLog
 )
 
 
@@ -292,3 +292,36 @@ async def get_user_programs(session: AsyncSession, user_id: int) -> list[Workout
         .where(WorkoutProgram.user_id == user_id)
     )
     return list(result.scalars().all())
+
+
+# ─── AIUsageLog (P3.13) ─────────────────────────────────────
+
+async def add_ai_usage_log(
+    session: AsyncSession, user_id: int, provider: str,
+    tokens_in: int, tokens_out: int
+) -> AIUsageLog:
+    log = AIUsageLog(
+        user_id=user_id, provider=provider,
+        tokens_in=tokens_in, tokens_out=tokens_out,
+    )
+    session.add(log)
+    await session.commit()
+    return log
+
+
+# ─── P4.17: /cancel helpers ─────────────────────────────────
+
+async def get_last_meal_log(session: AsyncSession, user_id: int) -> MealLog | None:
+    result = await session.execute(
+        select(MealLog).where(MealLog.user_id == user_id)
+        .order_by(MealLog.id.desc()).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_last_workout_log(session: AsyncSession, user_id: int) -> WorkoutLog | None:
+    result = await session.execute(
+        select(WorkoutLog).where(WorkoutLog.user_id == user_id)
+        .order_by(WorkoutLog.id.desc()).limit(1)
+    )
+    return result.scalar_one_or_none()

@@ -34,5 +34,21 @@ async def init_db():
                 conn.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
                 print(f"Migration: added column users.{col_name}")
 
+        # P3.13: ai_usage_log table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_log'")
+        if not cursor.fetchone():
+            conn.execute("""
+                CREATE TABLE ai_usage_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    provider VARCHAR(20) NOT NULL,
+                    tokens_in INTEGER DEFAULT 0,
+                    tokens_out INTEGER DEFAULT 0,
+                    timestamp DATETIME,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            """)
+            print("Migration: created table ai_usage_log")
+
         conn.commit()
         conn.close()

@@ -4,12 +4,10 @@ import json
 import hashlib
 import logging
 import asyncio
-import google.generativeai as genai
 from bot.cache.redis_client import get_photo_cache, set_photo_cache
+from bot.ai.clients import get_gemini_model, GEMINI_API_KEY
 
 logger = logging.getLogger(__name__)
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 
 async def analyze_photo(photo_bytes: bytes) -> dict | None:
@@ -28,8 +26,7 @@ async def analyze_photo(photo_bytes: bytes) -> dict | None:
         return None
 
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = get_gemini_model()
 
         prompt = (
             "Распознай еду на фото. Верни ТОЛЬКО JSON без markdown:\n"
@@ -42,9 +39,9 @@ async def analyze_photo(photo_bytes: bytes) -> dict | None:
         img = PIL.Image.open(io.BytesIO(photo_bytes))
 
         loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: model.generate_content([prompt, img])
+        response = await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: model.generate_content([prompt, img])),
+            timeout=10.0,
         )
 
         text = response.text.strip()

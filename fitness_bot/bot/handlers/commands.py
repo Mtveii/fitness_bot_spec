@@ -1,6 +1,8 @@
 import json
+import csv
+import io
 import logging
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta, date
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ConversationHandler, CommandHandler, MessageHandler, CallbackQueryHandler,
@@ -9,7 +11,8 @@ from telegram.ext import (
 
 from bot.db.base import async_session
 from bot.db import crud
-from bot.cache.redis_client import get_today_state, update_today_state
+from bot.db.models import MealLog, WorkoutLog
+from bot.cache.redis_client import get_today_state, update_today_state, decrement_today_state, invalidate_context
 from bot.calculators.tdee import bmr, tdee
 from bot.calculators.nutrition import daily_targets
 
@@ -395,6 +398,91 @@ def get_settings_handler() -> ConversationHandler:
         },
         fallbacks=[CommandHandler("cancel", settings_cancel)],
     )
+
+
+# ─── /cancel (P4.17) ────────────────────────────────────────
+
+async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    async with async_session() as session:
+        user = await crud.get_user(session, user_id)
+        if not user:
+            await update.message.reply_text("Сначала /onboarding")
+            return
+
+        meal = await crud.get_last_meal_log(session, user.id)
+        workout = await crud.get_last_workout_log(session, user.id)
+
+        target = None
+        if meal and workout:
+            target = meal if meal.date > workout.date else workout
+        else:
+            target = meal or workout
+
+        if not target:
+            await update.message.reply_text("Нечего отменять.")
+            return
+
+        if isinstance(target, MealLog):
+            await crud.delete_meal_log(session, target.id, user.id)
+            await decrement_today_state(
+                user_id,
+                calories_in=target.calories,
+                protein=target.protein,
+                fat=target.fat,
+                carbs=target.carbs,
+            )
+            await invalidate_context(user_id)
+            await update.message.reply_text(
+                f"✅ Отменено: {target.food_name} ({target.calories:.0f}ккал)"
+            )
+        else:
+            await crud.delete_workout_log(session, target.id, user.id)
+            await invalidate_context(user_id)
+            await update.message.reply_text(
+                f"✅ Отменена тренировка: {target.workout_name}"
+            )
+
+
+def get_cancel_handler() -> CommandHandler:
+    return CommandHandler("cancel", cancel_command)
+
+
+# ─── /export (P4.18) ────────────────────────────────────────
+
+async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    async with async_session() as session:
+        user = await crud.get_user(session, user_id)
+        if not user:
+            await update.message.reply_text("Сначала /onboarding")
+            return
+        week_start = datetime.now(UTC) - timedelta(days=7)
+        meals = await crud.get_meals_between(session, user.id, week_start, datetime.now(UTC))
+
+    if not meals:
+        await update.message.reply_text("Нет данных за неделю.")
+        return
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Дата", "Время", "Продукт", "Граммы", "Ккал", "Белок", "Жир", "Углеводы"])
+    for m in meals:
+        writer.writerow([
+            m.date.strftime("%Y-%m-%d"), m.date.strftime("%H:%M"),
+            m.food_name, m.weight_g, m.calories, m.protein, m.fat, m.carbs,
+        ])
+
+    buf.seek(0)
+    data = buf.getvalue().encode("utf-8-sig")
+    await update.message.reply_document(
+        document=io.BytesIO(data),
+        filename=f"export_{date.today().isoformat()}.csv",
+    )
+
+
+def get_export_handler() -> CommandHandler:
+    return CommandHandler("export", export_command)
 
 
 def get_today_handler() -> CommandHandler:

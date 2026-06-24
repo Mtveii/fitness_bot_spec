@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, UTC, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 logger = logging.getLogger(__name__)
 
@@ -170,3 +171,14 @@ def setup_scheduler(bot, user_id: int, user_data: dict) -> None:
         id=f"deficit_{user_id}",
         replace_existing=True,
     )
+
+    # P4.19: water reminders — каждые 2 часа с 8 до 22
+    async def send_water_reminder():
+        await send_message(bot, user_id, "💧 Не забудь попить воды!")
+
+    for h in range(8, 23, 2):
+        scheduler.add_job(
+            send_water_reminder, CronTrigger(hour=h, minute=0),
+            id=f"water_{user_id}_{h}",
+            replace_existing=True,
+        )
