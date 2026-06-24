@@ -1,0 +1,11 @@
+python-telegram-bot==21.*
+sqlalchemy[asyncio]
+aiosqlite
+alembic
+redis[hiredis]
+apscheduler
+google-generativeai
+groq
+httpx
+Pillow
+python-dotenv

@@ -1,0 +1,2018 @@
+[
+  {
+    "name": "dirty rice",
+    "calories": 112,
+    "protein": 5.12,
+    "fat": 2.25,
+    "carbs": 17.25,
+    "fiber": 0.6,
+    "sugar": 0
+  },
+  {
+    "name": "rice dressing",
+    "calories": 110,
+    "protein": 1.98,
+    "fat": 3.29,
+    "carbs": 17.61,
+    "fiber": 0.6,
+    "sugar": 0
+  },
+  {
+    "name": "crackers, rice",
+    "calories": 416,
+    "protein": 10,
+    "fat": 5,
+    "carbs": 82.64,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "buckwheat",
+    "calories": 343,
+    "protein": 13.2,
+    "fat": 3.4,
+    "carbs": 71.5,
+    "fiber": 10.0,
+    "sugar": 0
+  },
+  {
+    "name": "buckwheat groats",
+    "calories": 118,
+    "protein": 3.24,
+    "fat": 3.97,
+    "carbs": 18.99,
+    "fiber": 2.6,
+    "sugar": 0
+  },
+  {
+    "name": "flour, buckwheat",
+    "calories": 0,
+    "protein": 8.88,
+    "fat": 2.48,
+    "carbs": 75.0,
+    "fiber": 10.4,
+    "sugar": 0
+  },
+  {
+    "name": "oatmeal, multigrain",
+    "calories": 56,
+    "protein": 2.12,
+    "fat": 0.46,
+    "carbs": 12.19,
+    "fiber": 2,
+    "sugar": 0
+  },
+  {
+    "name": "oatmeal, nfs",
+    "calories": 76,
+    "protein": 2.18,
+    "fat": 2.63,
+    "carbs": 11.17,
+    "fiber": 1.7,
+    "sugar": 0
+  },
+  {
+    "name": "bread, oatmeal",
+    "calories": 269,
+    "protein": 8.4,
+    "fat": 4.4,
+    "carbs": 48.5,
+    "fiber": 4.0,
+    "sugar": 0
+  },
+  {
+    "name": "potato patty",
+    "calories": 171,
+    "protein": 3.89,
+    "fat": 11.32,
+    "carbs": 13.49,
+    "fiber": 1.5,
+    "sugar": 0
+  },
+  {
+    "name": "soup, potato",
+    "calories": 90,
+    "protein": 1.51,
+    "fat": 4.71,
+    "carbs": 10.53,
+    "fiber": 1.2,
+    "sugar": 0
+  },
+  {
+    "name": "potato pancake",
+    "calories": 196,
+    "protein": 4.47,
+    "fat": 10.8,
+    "carbs": 20.64,
+    "fiber": 2.2,
+    "sugar": 0
+  },
+  {
+    "name": "bananas, dehydrated, or banana powder",
+    "calories": 346,
+    "protein": 3.89,
+    "fat": 1.81,
+    "carbs": 88.3,
+    "fiber": 9.9,
+    "sugar": 0
+  },
+  {
+    "name": "banana, baked",
+    "calories": 161,
+    "protein": 0.82,
+    "fat": 3.21,
+    "carbs": 32.43,
+    "fiber": 1.8,
+    "sugar": 0
+  },
+  {
+    "name": "banana, raw",
+    "calories": 97,
+    "protein": 0.74,
+    "fat": 0.28,
+    "carbs": 22.71,
+    "fiber": 1.7,
+    "sugar": 0
+  },
+  {
+    "name": "orange, raw",
+    "calories": 50,
+    "protein": 0.92,
+    "fat": 0.14,
+    "carbs": 11.78,
+    "fiber": 2.2,
+    "sugar": 0
+  },
+  {
+    "name": "marmalade, orange",
+    "calories": 1030.0,
+    "protein": 0.3,
+    "fat": 0.0,
+    "carbs": 66.3,
+    "fiber": 0.7,
+    "sugar": 0
+  },
+  {
+    "name": "orange blossom",
+    "calories": 98,
+    "protein": 0.57,
+    "fat": 0.26,
+    "carbs": 9.32,
+    "fiber": 0.2,
+    "sugar": 0
+  },
+  {
+    "name": "cucumber salad made with cucumber and vinegar",
+    "calories": 34,
+    "protein": 0.5,
+    "fat": 0.13,
+    "carbs": 6.79,
+    "fiber": 0.5,
+    "sugar": 0
+  },
+  {
+    "name": "cucumber, raw",
+    "calories": 16,
+    "protein": 0.62,
+    "fat": 0.18,
+    "carbs": 2.95,
+    "fiber": 0.5,
+    "sugar": 0
+  },
+  {
+    "name": "cucumber, cooked",
+    "calories": 45,
+    "protein": 0.72,
+    "fat": 3.2,
+    "carbs": 3.37,
+    "fiber": 0.6,
+    "sugar": 0
+  },
+  {
+    "name": "beef burgundy",
+    "calories": 148,
+    "protein": 18.48,
+    "fat": 6,
+    "carbs": 4.19,
+    "fiber": 0.8,
+    "sugar": 0
+  },
+  {
+    "name": "beef, cured, corned beef, canned",
+    "calories": 250,
+    "protein": 27.1,
+    "fat": 14.9,
+    "carbs": 0.0,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "stew, beef",
+    "calories": 107,
+    "protein": 8.76,
+    "fat": 5.07,
+    "carbs": 6.29,
+    "fiber": 1.3,
+    "sugar": 0
+  },
+  {
+    "name": "oil, peanut",
+    "calories": 0,
+    "protein": 0,
+    "fat": 0,
+    "carbs": 0,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "peanut butter",
+    "calories": 598,
+    "protein": 22.21,
+    "fat": 51.36,
+    "carbs": 22.31,
+    "fiber": 5,
+    "sugar": 0
+  },
+  {
+    "name": "peanut oil",
+    "calories": 900,
+    "protein": 0,
+    "fat": 100,
+    "carbs": 0,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "olive oil",
+    "calories": 900,
+    "protein": 0,
+    "fat": 100,
+    "carbs": 0,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "oil, corn, peanut, and olive",
+    "calories": 884,
+    "protein": 0.0,
+    "fat": 100,
+    "carbs": 0.0,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "oil, olive, extra light",
+    "calories": 0,
+    "protein": 0,
+    "fat": 0,
+    "carbs": 0,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "honey",
+    "calories": 1270.0,
+    "protein": 0.3,
+    "fat": 0.0,
+    "carbs": 82.4,
+    "fiber": 0.2,
+    "sugar": 0
+  },
+  {
+    "name": "honey butter",
+    "calories": 485,
+    "protein": 0.53,
+    "fat": 33.85,
+    "carbs": 48.5,
+    "fiber": 0.1,
+    "sugar": 0
+  },
+  {
+    "name": "sugar substitute and sugar blend",
+    "calories": 399,
+    "protein": 0,
+    "fat": 0.31,
+    "carbs": 99.35,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "cookie, sugar or plain, sugar free",
+    "calories": 523,
+    "protein": 10.34,
+    "fat": 31.03,
+    "carbs": 50.52,
+    "fiber": 3.4,
+    "sugar": 0
+  },
+  {
+    "name": "cookie, sugar wafer, sugar free",
+    "calories": 531,
+    "protein": 3.57,
+    "fat": 28.57,
+    "carbs": 66.26,
+    "fiber": 14.3,
+    "sugar": 0
+  },
+  {
+    "name": "corn beverage",
+    "calories": 44,
+    "protein": 0.84,
+    "fat": 0.21,
+    "carbs": 9.4,
+    "fiber": 0.5,
+    "sugar": 0
+  },
+  {
+    "name": "corn oil",
+    "calories": 900,
+    "protein": 0,
+    "fat": 100,
+    "carbs": 0,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "corn nuts",
+    "calories": 446,
+    "protein": 8.5,
+    "fat": 15.64,
+    "carbs": 71.86,
+    "fiber": 6.9,
+    "sugar": 0
+  },
+  {
+    "name": "soy sauce",
+    "calories": 53,
+    "protein": 8.14,
+    "fat": 0.57,
+    "carbs": 4.93,
+    "fiber": 0.8,
+    "sugar": 0
+  },
+  {
+    "name": "soy sauce made from soy (tamari)",
+    "calories": 251,
+    "protein": 10.5,
+    "fat": 0.1,
+    "carbs": 5.57,
+    "fiber": 0.8,
+    "sugar": 0
+  },
+  {
+    "name": "soy sauce made from soy and wheat (shoyu)",
+    "calories": 53.0,
+    "protein": 8.14,
+    "fat": 0.57,
+    "carbs": 4.93,
+    "fiber": 0.8,
+    "sugar": 0
+  },
+  {
+    "name": "ketchup",
+    "calories": 109,
+    "protein": 1.08,
+    "fat": 0.32,
+    "carbs": 27.1,
+    "fiber": 0.3,
+    "sugar": 0
+  },
+  {
+    "name": "ketchup, restaurant",
+    "calories": 488,
+    "protein": 1.11,
+    "fat": 0.55,
+    "carbs": 26.8,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "ketchup, reduced sodium",
+    "calories": 101,
+    "protein": 1.04,
+    "fat": 0.1,
+    "carbs": 27.4,
+    "fiber": 0.3,
+    "sugar": 0
+  },
+  {
+    "name": "dessert pizza",
+    "calories": 204,
+    "protein": 1.84,
+    "fat": 7.53,
+    "carbs": 32.38,
+    "fiber": 1.7,
+    "sugar": 0
+  },
+  {
+    "name": "mexican pizza",
+    "calories": 249,
+    "protein": 15.47,
+    "fat": 13.94,
+    "carbs": 15.3,
+    "fiber": 2.1,
+    "sugar": 0
+  },
+  {
+    "name": "pizza rolls",
+    "calories": 345,
+    "protein": 9.19,
+    "fat": 10.5,
+    "carbs": 53.39,
+    "fiber": 1.3,
+    "sugar": 0
+  },
+  {
+    "name": "applebee's, french fries",
+    "calories": 1210.0,
+    "protein": 3.31,
+    "fat": 13.2,
+    "carbs": 39.5,
+    "fiber": 3.9,
+    "sugar": 0
+  },
+  {
+    "name": "denny's, french fries",
+    "calories": 282,
+    "protein": 3.41,
+    "fat": 14.1,
+    "carbs": 35.2,
+    "fiber": 3.5,
+    "sugar": 0
+  },
+  {
+    "name": "mcdonald's, french fries",
+    "calories": 323,
+    "protein": 3.41,
+    "fat": 15.5,
+    "carbs": 42.6,
+    "fiber": 3.9,
+    "sugar": 0
+  },
+  {
+    "name": "ice cream cake",
+    "calories": 283,
+    "protein": 2.95,
+    "fat": 12.67,
+    "carbs": 39.28,
+    "fiber": 0.5,
+    "sugar": 0
+  },
+  {
+    "name": "ice cream sandwich",
+    "calories": 990,
+    "protein": 4.29,
+    "fat": 8.57,
+    "carbs": 37.1,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "ice cream, chocolate",
+    "calories": 216,
+    "protein": 3.8,
+    "fat": 11,
+    "carbs": 28.2,
+    "fiber": 1.2,
+    "sugar": 0
+  },
+  {
+    "name": "multigrain chips (sun chips)",
+    "calories": 491,
+    "protein": 7.95,
+    "fat": 21.11,
+    "carbs": 67.26,
+    "fiber": 8.8,
+    "sugar": 0
+  },
+  {
+    "name": "cracker chips",
+    "calories": 491,
+    "protein": 7.95,
+    "fat": 21.11,
+    "carbs": 67.26,
+    "fiber": 8.8,
+    "sugar": 0
+  },
+  {
+    "name": "chocolate chips",
+    "calories": 480,
+    "protein": 4.2,
+    "fat": 30,
+    "carbs": 63.9,
+    "fiber": 5.9,
+    "sugar": 0
+  },
+  {
+    "name": "beer",
+    "calories": 43,
+    "protein": 0.46,
+    "fat": 0,
+    "carbs": 3.55,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "beer, nonalcoholic",
+    "calories": 37,
+    "protein": 0.21,
+    "fat": 0.12,
+    "carbs": 8.05,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "beer, light",
+    "calories": 29,
+    "protein": 0.24,
+    "fat": 0,
+    "carbs": 1.64,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "cranberry juice blend, 100% juice",
+    "calories": 46,
+    "protein": 0.12,
+    "fat": 0.18,
+    "carbs": 11.16,
+    "fiber": 0.2,
+    "sugar": 0
+  },
+  {
+    "name": "fruit juice blend, 100% juice",
+    "calories": 50,
+    "protein": 0.16,
+    "fat": 0.12,
+    "carbs": 12.46,
+    "fiber": 0.2,
+    "sugar": 0
+  },
+  {
+    "name": "fruit juice blend, citrus, 100% juice",
+    "calories": 47,
+    "protein": 0.77,
+    "fat": 0.34,
+    "carbs": 10.18,
+    "fiber": 0.3,
+    "sugar": 0
+  },
+  {
+    "name": "formulated bar, south beach protein bar",
+    "calories": 1720.0,
+    "protein": 30.3,
+    "fat": 15.2,
+    "carbs": 38.4,
+    "fiber": 7.3,
+    "sugar": 0
+  },
+  {
+    "name": "nutrition bar (snickers marathon protein bar)",
+    "calories": 415,
+    "protein": 25,
+    "fat": 12.5,
+    "carbs": 50.5,
+    "fiber": 12.5,
+    "sugar": 0
+  },
+  {
+    "name": "nutrition bar (south beach living high protein bar)",
+    "calories": 412,
+    "protein": 30.34,
+    "fat": 15.17,
+    "carbs": 38.4,
+    "fiber": 7.3,
+    "sugar": 0
+  },
+  {
+    "name": "spinach, creamed",
+    "calories": 90,
+    "protein": 2.39,
+    "fat": 6.09,
+    "carbs": 6.11,
+    "fiber": 1.2,
+    "sugar": 0
+  },
+  {
+    "name": "spinach, raw",
+    "calories": 27,
+    "protein": 2.85,
+    "fat": 0.62,
+    "carbs": 2.41,
+    "fiber": 1.6,
+    "sugar": 0
+  },
+  {
+    "name": "spinach souffle",
+    "calories": 128,
+    "protein": 5.72,
+    "fat": 8.64,
+    "carbs": 7.13,
+    "fiber": 1.1,
+    "sugar": 0
+  },
+  {
+    "name": "kale, raw",
+    "calories": 35.0,
+    "protein": 2.92,
+    "fat": 1.49,
+    "carbs": 4.42,
+    "fiber": 4.1,
+    "sugar": 0
+  },
+  {
+    "name": "fried mushrooms",
+    "calories": 222,
+    "protein": 4.63,
+    "fat": 12.91,
+    "carbs": 21.9,
+    "fiber": 1.6,
+    "sugar": 0
+  },
+  {
+    "name": "mushroom, beech",
+    "calories": 0,
+    "protein": 2.18,
+    "fat": 0.449,
+    "carbs": 6.76,
+    "fiber": 3.14,
+    "sugar": 0
+  },
+  {
+    "name": "mushroom, crimini",
+    "calories": 0,
+    "protein": 3.09,
+    "fat": 0.197,
+    "carbs": 4.01,
+    "fiber": 1.78,
+    "sugar": 0
+  },
+  {
+    "name": "blueberries, raw",
+    "calories": 64,
+    "protein": 0.7,
+    "fat": 0.31,
+    "carbs": 14.57,
+    "fiber": 2.4,
+    "sugar": 0
+  },
+  {
+    "name": "blueberries, frozen",
+    "calories": 51,
+    "protein": 0.42,
+    "fat": 0.64,
+    "carbs": 12.17,
+    "fiber": 2.7,
+    "sugar": 0
+  },
+  {
+    "name": "blueberries, dried",
+    "calories": 317,
+    "protein": 2.5,
+    "fat": 2.5,
+    "carbs": 80,
+    "fiber": 7.5,
+    "sugar": 0
+  },
+  {
+    "name": "mango, raw",
+    "calories": 60,
+    "protein": 0.82,
+    "fat": 0.38,
+    "carbs": 14.98,
+    "fiber": 1.6,
+    "sugar": 0
+  },
+  {
+    "name": "mango, canned",
+    "calories": 65,
+    "protein": 0.62,
+    "fat": 0.3,
+    "carbs": 16.22,
+    "fiber": 1.2,
+    "sugar": 0
+  },
+  {
+    "name": "mango, frozen",
+    "calories": 60,
+    "protein": 0.82,
+    "fat": 0.38,
+    "carbs": 14.98,
+    "fiber": 1.6,
+    "sugar": 0
+  },
+  {
+    "name": "pineapple, raw",
+    "calories": 60,
+    "protein": 0.46,
+    "fat": 0.21,
+    "carbs": 14.09,
+    "fiber": 0.9,
+    "sugar": 0
+  },
+  {
+    "name": "pineapple, frozen",
+    "calories": 60,
+    "protein": 0.46,
+    "fat": 0.21,
+    "carbs": 14.09,
+    "fiber": 0.9,
+    "sugar": 0
+  },
+  {
+    "name": "pineapple, dried",
+    "calories": 347,
+    "protein": 1.22,
+    "fat": 0.71,
+    "carbs": 84.11,
+    "fiber": 2.4,
+    "sugar": 0
+  },
+  {
+    "name": "grapes, raw",
+    "calories": 83,
+    "protein": 0.9,
+    "fat": 0.2,
+    "carbs": 19.4,
+    "fiber": 0.9,
+    "sugar": 0
+  },
+  {
+    "name": "grape juice, 100%",
+    "calories": 66,
+    "protein": 0.18,
+    "fat": 0.28,
+    "carbs": 15.73,
+    "fiber": 0.2,
+    "sugar": 0
+  },
+  {
+    "name": "grape leaves, canned",
+    "calories": 287,
+    "protein": 4.27,
+    "fat": 1.97,
+    "carbs": 11.7,
+    "fiber": 9.9,
+    "sugar": 0
+  },
+  {
+    "name": "crab",
+    "calories": 83,
+    "protein": 17.88,
+    "fat": 0.74,
+    "carbs": 0,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "crab salad made with imitation crab",
+    "calories": 197,
+    "protein": 4.07,
+    "fat": 16.28,
+    "carbs": 8.66,
+    "fiber": 0.6,
+    "sugar": 0
+  },
+  {
+    "name": "crab, cake",
+    "calories": 214,
+    "protein": 14.4,
+    "fat": 14.97,
+    "carbs": 4.48,
+    "fiber": 0.3,
+    "sugar": 0
+  },
+  {
+    "name": "octopus",
+    "calories": 226,
+    "protein": 13.25,
+    "fat": 12.96,
+    "carbs": 13.39,
+    "fiber": 0.5,
+    "sugar": 0
+  },
+  {
+    "name": "octopus (alaska native)",
+    "calories": 236,
+    "protein": 12.3,
+    "fat": 0.8,
+    "carbs": 0.0,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "mollusks, octopus, common, raw",
+    "calories": 82.0,
+    "protein": 14.9,
+    "fat": 1.04,
+    "carbs": 2.2,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "tempeh",
+    "calories": 192,
+    "protein": 20.3,
+    "fat": 10.8,
+    "carbs": 7.64,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "tempeh, cooked",
+    "calories": 195,
+    "protein": 19.9,
+    "fat": 11.4,
+    "carbs": 7.62,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "meat substitute, cereal- and vegetable protein-based, fried",
+    "calories": 359,
+    "protein": 12.8,
+    "fat": 7.23,
+    "carbs": 61.25,
+    "fiber": 8.9,
+    "sugar": 0
+  },
+  {
+    "name": "hummus, commercial",
+    "calories": 237,
+    "protein": 7.78,
+    "fat": 17.8,
+    "carbs": 15.0,
+    "fiber": 5.5,
+    "sugar": 0
+  },
+  {
+    "name": "hummus, flavored",
+    "calories": 241,
+    "protein": 7.22,
+    "fat": 17.1,
+    "carbs": 14.63,
+    "fiber": 5.3,
+    "sugar": 0
+  },
+  {
+    "name": "quinoa, cooked",
+    "calories": 120,
+    "protein": 4.4,
+    "fat": 1.92,
+    "carbs": 21.3,
+    "fiber": 2.8,
+    "sugar": 0
+  },
+  {
+    "name": "quinoa, uncooked",
+    "calories": 1540.0,
+    "protein": 14.1,
+    "fat": 6.07,
+    "carbs": 64.2,
+    "fiber": 7.0,
+    "sugar": 0
+  },
+  {
+    "name": "flour, quinoa",
+    "calories": 0,
+    "protein": 11.9,
+    "fat": 6.6,
+    "carbs": 69.5,
+    "fiber": 6.3,
+    "sugar": 0
+  },
+  {
+    "name": "couscous, cooked",
+    "calories": 112,
+    "protein": 3.79,
+    "fat": 0.16,
+    "carbs": 23.2,
+    "fiber": 1.4,
+    "sugar": 0
+  },
+  {
+    "name": "couscous, dry",
+    "calories": 376,
+    "protein": 12.8,
+    "fat": 0.64,
+    "carbs": 77.4,
+    "fiber": 5.0,
+    "sugar": 0
+  },
+  {
+    "name": "couscous, plain, cooked",
+    "calories": 111,
+    "protein": 3.77,
+    "fat": 0.16,
+    "carbs": 23.11,
+    "fiber": 1.4,
+    "sugar": 0
+  },
+  {
+    "name": "bulgur, cooked",
+    "calories": 83.0,
+    "protein": 3.08,
+    "fat": 0.24,
+    "carbs": 18.6,
+    "fiber": 4.5,
+    "sugar": 0
+  },
+  {
+    "name": "bulgur, dry",
+    "calories": 342,
+    "protein": 12.3,
+    "fat": 1.33,
+    "carbs": 75.9,
+    "fiber": 12.5,
+    "sugar": 0
+  },
+  {
+    "name": "bulgur, dry, raw",
+    "calories": 0,
+    "protein": 11.8,
+    "fat": 2.42,
+    "carbs": 75.9,
+    "fiber": 11.7,
+    "sugar": 0
+  },
+  {
+    "name": "barley",
+    "calories": 139,
+    "protein": 2.2,
+    "fat": 2.74,
+    "carbs": 27.23,
+    "fiber": 3.7,
+    "sugar": 0
+  },
+  {
+    "name": "soup, barley",
+    "calories": 58,
+    "protein": 3.34,
+    "fat": 2.07,
+    "carbs": 6.66,
+    "fiber": 1.1,
+    "sugar": 0
+  },
+  {
+    "name": "barley, hulled",
+    "calories": 354,
+    "protein": 12.5,
+    "fat": 2.3,
+    "carbs": 73.5,
+    "fiber": 17.3,
+    "sugar": 0
+  },
+  {
+    "name": "coconut oil",
+    "calories": 895,
+    "protein": 0,
+    "fat": 99.1,
+    "carbs": 0.84,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "oil, coconut",
+    "calories": 892,
+    "protein": 0.0,
+    "fat": 99.1,
+    "carbs": 0.0,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "mayonnaise, regular",
+    "calories": 680,
+    "protein": 0.96,
+    "fat": 74.85,
+    "carbs": 0.57,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "vegan mayonnaise",
+    "calories": 232,
+    "protein": 0.3,
+    "fat": 19.2,
+    "carbs": 16,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "mayonnaise, light",
+    "calories": 238,
+    "protein": 0.37,
+    "fat": 22.22,
+    "carbs": 9.23,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "mustard",
+    "calories": 69,
+    "protein": 4.25,
+    "fat": 3.38,
+    "carbs": 5.3,
+    "fiber": 4.3,
+    "sugar": 0
+  },
+  {
+    "name": "oil, mustard",
+    "calories": 884,
+    "protein": 0.0,
+    "fat": 100,
+    "carbs": 0.0,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "honey mustard dip",
+    "calories": 275,
+    "protein": 1.77,
+    "fat": 18.01,
+    "carbs": 25.16,
+    "fiber": 1,
+    "sugar": 0
+  },
+  {
+    "name": "fish, tuna, canned",
+    "calories": 85,
+    "protein": 19,
+    "fat": 0.94,
+    "carbs": 0.08,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "fish, tuna, light, canned in oil, drained solids",
+    "calories": 830,
+    "protein": 29.1,
+    "fat": 8.21,
+    "carbs": 0.0,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "fish, tuna, light, canned in water, drained solids",
+    "calories": 376,
+    "protein": 19.0,
+    "fat": 0.94,
+    "carbs": 0.08,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "sardine sandwich",
+    "calories": 234,
+    "protein": 17.87,
+    "fat": 7.96,
+    "carbs": 21.87,
+    "fiber": 1,
+    "sugar": 0
+  },
+  {
+    "name": "fish oil, sardine",
+    "calories": 902,
+    "protein": 0.0,
+    "fat": 100,
+    "carbs": 0.0,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "fish, sardines, canned",
+    "calories": 208,
+    "protein": 24.62,
+    "fat": 11.45,
+    "carbs": 0,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "cream substitute, liquid, with lauric acid oil and sodium caseinate",
+    "calories": 136,
+    "protein": 1.0,
+    "fat": 9.97,
+    "carbs": 11.4,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "rice cake",
+    "calories": 392,
+    "protein": 7.1,
+    "fat": 4.3,
+    "carbs": 81.1,
+    "fiber": 4.2,
+    "sugar": 0
+  },
+  {
+    "name": "rice cake, cracker (include hain mini rice cakes)",
+    "calories": 1640.0,
+    "protein": 7.1,
+    "fat": 4.3,
+    "carbs": 81.1,
+    "fiber": 4.2,
+    "sugar": 0
+  },
+  {
+    "name": "cake made with glutinous rice",
+    "calories": 279,
+    "protein": 2.49,
+    "fat": 6.51,
+    "carbs": 53.57,
+    "fiber": 0.7,
+    "sugar": 0
+  },
+  {
+    "name": "cereals ready-to-eat, alpen",
+    "calories": 1470.0,
+    "protein": 11.2,
+    "fat": 3.3,
+    "carbs": 75.7,
+    "fiber": 9.1,
+    "sugar": 0
+  },
+  {
+    "name": "cereals ready-to-eat, familia",
+    "calories": 388,
+    "protein": 9.5,
+    "fat": 6.3,
+    "carbs": 73.8,
+    "fiber": 8.5,
+    "sugar": 0
+  },
+  {
+    "name": "sugar substitute, stevia, powder",
+    "calories": 0,
+    "protein": 0,
+    "fat": 0,
+    "carbs": 100,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "sugar substitute, stevia, liquid",
+    "calories": 51,
+    "protein": 0.8,
+    "fat": 0,
+    "carbs": 11.99,
+    "fiber": 0.7,
+    "sugar": 0
+  },
+  {
+    "name": "sweetener, herbal extract powder from stevia leaf",
+    "calories": 0.0,
+    "protein": 0.0,
+    "fat": 0.0,
+    "carbs": 100,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "oat milk",
+    "calories": 45,
+    "protein": 0.66,
+    "fat": 2.33,
+    "carbs": 5.37,
+    "fiber": 0.5,
+    "sugar": 0
+  },
+  {
+    "name": "oat milk, unsweetened, plain, refrigerated",
+    "calories": 0,
+    "protein": 0.797,
+    "fat": 2.75,
+    "carbs": 5.1,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "oats, raw",
+    "calories": 379,
+    "protein": 13.15,
+    "fat": 6.52,
+    "carbs": 67.7,
+    "fiber": 10.1,
+    "sugar": 0
+  },
+  {
+    "name": "soy milk, chocolate",
+    "calories": 64,
+    "protein": 3.35,
+    "fat": 2.03,
+    "carbs": 8.32,
+    "fiber": 0.1,
+    "sugar": 0
+  },
+  {
+    "name": "soy milk, sweetened",
+    "calories": 53,
+    "protein": 3.41,
+    "fat": 2.05,
+    "carbs": 5.22,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "soy milk, unsweetened",
+    "calories": 38,
+    "protein": 3.55,
+    "fat": 2.12,
+    "carbs": 1.29,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "coconut milk",
+    "calories": 31,
+    "protein": 0.21,
+    "fat": 2.08,
+    "carbs": 2.92,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "yogurt, coconut milk",
+    "calories": 108,
+    "protein": 2.37,
+    "fat": 5.61,
+    "carbs": 12.91,
+    "fiber": 1.2,
+    "sugar": 0
+  },
+  {
+    "name": "coconut milk, used in cooking",
+    "calories": 230,
+    "protein": 2.29,
+    "fat": 23.84,
+    "carbs": 5.54,
+    "fiber": 2.2,
+    "sugar": 0
+  },
+  {
+    "name": "yogurt, greek, with oats",
+    "calories": 149,
+    "protein": 9.22,
+    "fat": 3.67,
+    "carbs": 20.02,
+    "fiber": 1.5,
+    "sugar": 0
+  },
+  {
+    "name": "yogurt, greek, blueberry, chobani",
+    "calories": 343,
+    "protein": 7.23,
+    "fat": 0.24,
+    "carbs": 12.8,
+    "fiber": 0.5,
+    "sugar": 0
+  },
+  {
+    "name": "yogurt, greek, plain, lowfat",
+    "calories": 305,
+    "protein": 9.95,
+    "fat": 1.92,
+    "carbs": 3.94,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "bologna, turkey",
+    "calories": 209,
+    "protein": 11.4,
+    "fat": 16.0,
+    "carbs": 4.68,
+    "fiber": 0.5,
+    "sugar": 0
+  },
+  {
+    "name": "fat, turkey",
+    "calories": 900,
+    "protein": 0.0,
+    "fat": 99.8,
+    "carbs": 0.0,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "frankfurter, turkey",
+    "calories": 933,
+    "protein": 12.2,
+    "fat": 17.3,
+    "carbs": 3.81,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "lamb, chop",
+    "calories": 264,
+    "protein": 27.36,
+    "fat": 16.27,
+    "carbs": 0,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "lamb, ground",
+    "calories": 281,
+    "protein": 24.55,
+    "fat": 19.49,
+    "carbs": 0,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "stew, lamb",
+    "calories": 117,
+    "protein": 8.19,
+    "fat": 6.39,
+    "carbs": 6.29,
+    "fiber": 1.3,
+    "sugar": 0
+  },
+  {
+    "name": "veal marsala",
+    "calories": 175,
+    "protein": 17.82,
+    "fat": 8.54,
+    "carbs": 6.74,
+    "fiber": 0.5,
+    "sugar": 0
+  },
+  {
+    "name": "veal, chop",
+    "calories": 158,
+    "protein": 29.51,
+    "fat": 4.4,
+    "carbs": 0.07,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "veal scallopini",
+    "calories": 241,
+    "protein": 18.71,
+    "fat": 17.47,
+    "carbs": 1.47,
+    "fiber": 0.4,
+    "sugar": 0
+  },
+  {
+    "name": "bacon bits",
+    "calories": 476,
+    "protein": 32,
+    "fat": 25.9,
+    "carbs": 28.6,
+    "fiber": 10.2,
+    "sugar": 0
+  },
+  {
+    "name": "bacon, meatless",
+    "calories": 309,
+    "protein": 11.7,
+    "fat": 29.5,
+    "carbs": 5.31,
+    "fiber": 2.6,
+    "sugar": 0
+  },
+  {
+    "name": "beef, bacon, cooked",
+    "calories": 449,
+    "protein": 31.3,
+    "fat": 34.4,
+    "carbs": 1.4,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "greek salad, no dressing",
+    "calories": 48,
+    "protein": 2.75,
+    "fat": 2.26,
+    "carbs": 4.35,
+    "fiber": 1.5,
+    "sugar": 0
+  },
+  {
+    "name": "salad dressing, nfs, for salads",
+    "calories": 430,
+    "protein": 1.32,
+    "fat": 44.54,
+    "carbs": 5.9,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "beef salad",
+    "calories": 261,
+    "protein": 17.85,
+    "fat": 19.32,
+    "carbs": 2.9,
+    "fiber": 0.4,
+    "sugar": 0
+  },
+  {
+    "name": "soup, borscht",
+    "calories": 20,
+    "protein": 0.52,
+    "fat": 0.37,
+    "carbs": 3.9,
+    "fiber": 0.8,
+    "sugar": 0
+  },
+  {
+    "name": "soup, pepperpot",
+    "calories": 91,
+    "protein": 3.06,
+    "fat": 5.75,
+    "carbs": 6.79,
+    "fiber": 0.9,
+    "sugar": 0
+  },
+  {
+    "name": "waffle, chocolate",
+    "calories": 437,
+    "protein": 9.07,
+    "fat": 22.7,
+    "carbs": 48.64,
+    "fiber": 2.9,
+    "sugar": 0
+  },
+  {
+    "name": "waffle, cinnamon",
+    "calories": 373,
+    "protein": 8.7,
+    "fat": 18.78,
+    "carbs": 41.67,
+    "fiber": 2.7,
+    "sugar": 0
+  },
+  {
+    "name": "waffle, fruit",
+    "calories": 307,
+    "protein": 6.94,
+    "fat": 14.92,
+    "carbs": 36.25,
+    "fiber": 2.8,
+    "sugar": 0
+  },
+  {
+    "name": "doughnuts, cake-type, chocolate, sugared or glazed",
+    "calories": 417,
+    "protein": 4.5,
+    "fat": 19.9,
+    "carbs": 57.4,
+    "fiber": 2.2,
+    "sugar": 0
+  },
+  {
+    "name": "doughnuts, cake-type, plain (includes unsugared, old-fashioned)",
+    "calories": 434,
+    "protein": 5.31,
+    "fat": 24.9,
+    "carbs": 47.1,
+    "fiber": 1.7,
+    "sugar": 0
+  },
+  {
+    "name": "doughnuts, cake-type, plain, chocolate-coated or frosted",
+    "calories": 452,
+    "protein": 4.93,
+    "fat": 25.2,
+    "carbs": 51.3,
+    "fiber": 1.9,
+    "sugar": 0
+  },
+  {
+    "name": "muffin, zucchini",
+    "calories": 306,
+    "protein": 5.05,
+    "fat": 13.14,
+    "carbs": 42.64,
+    "fiber": 0.9,
+    "sugar": 0
+  },
+  {
+    "name": "muffin, fruit",
+    "calories": 375,
+    "protein": 4.49,
+    "fat": 16.07,
+    "carbs": 53,
+    "fiber": 1.1,
+    "sugar": 0
+  },
+  {
+    "name": "muffin, carrot",
+    "calories": 314,
+    "protein": 5.01,
+    "fat": 13.21,
+    "carbs": 44.42,
+    "fiber": 1.4,
+    "sugar": 0
+  },
+  {
+    "name": "cookie, biscotti",
+    "calories": 373,
+    "protein": 7.63,
+    "fat": 8.38,
+    "carbs": 66.99,
+    "fiber": 1.4,
+    "sugar": 0
+  },
+  {
+    "name": "cookie, rugelach",
+    "calories": 348,
+    "protein": 3.7,
+    "fat": 7.3,
+    "carbs": 70.9,
+    "fiber": 4.6,
+    "sugar": 0
+  },
+  {
+    "name": "cookie, raisin",
+    "calories": 401,
+    "protein": 4.1,
+    "fat": 13.6,
+    "carbs": 68,
+    "fiber": 1.2,
+    "sugar": 0
+  },
+  {
+    "name": "cake, fruit cake",
+    "calories": 324,
+    "protein": 2.9,
+    "fat": 9.1,
+    "carbs": 61.6,
+    "fiber": 3.7,
+    "sugar": 0
+  },
+  {
+    "name": "popcorn cake",
+    "calories": 384,
+    "protein": 9.7,
+    "fat": 3.1,
+    "carbs": 80.1,
+    "fiber": 2.9,
+    "sugar": 0
+  },
+  {
+    "name": "cake, cream",
+    "calories": 286,
+    "protein": 3.84,
+    "fat": 17.03,
+    "carbs": 30.02,
+    "fiber": 0.4,
+    "sugar": 0
+  },
+  {
+    "name": "babyfood, pretzels",
+    "calories": 397,
+    "protein": 10.8,
+    "fat": 2.0,
+    "carbs": 82.2,
+    "fiber": 2.3,
+    "sugar": 0
+  },
+  {
+    "name": "pretzels, nfs",
+    "calories": 384,
+    "protein": 10.04,
+    "fat": 2.93,
+    "carbs": 80.39,
+    "fiber": 3.4,
+    "sugar": 0
+  },
+  {
+    "name": "pretzels, soft",
+    "calories": 338,
+    "protein": 8.2,
+    "fat": 3.1,
+    "carbs": 69.4,
+    "fiber": 1.7,
+    "sugar": 0
+  },
+  {
+    "name": "crackers, snack, goya crackers",
+    "calories": 433,
+    "protein": 14.2,
+    "fat": 13.4,
+    "carbs": 64.4,
+    "fiber": 3.8,
+    "sugar": 0
+  },
+  {
+    "name": "crackers, oatmeal",
+    "calories": 455,
+    "protein": 7.3,
+    "fat": 16.4,
+    "carbs": 70.73,
+    "fiber": 6.9,
+    "sugar": 0
+  },
+  {
+    "name": "crackers, oyster",
+    "calories": 418,
+    "protein": 9.46,
+    "fat": 8.64,
+    "carbs": 74.05,
+    "fiber": 2.8,
+    "sugar": 0
+  },
+  {
+    "name": "chicken, broiler, rotisserie, bbq, skin",
+    "calories": 378,
+    "protein": 15.2,
+    "fat": 35.2,
+    "carbs": 0.7,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "barbecue sauce",
+    "calories": 172,
+    "protein": 0.82,
+    "fat": 0.63,
+    "carbs": 40.77,
+    "fiber": 0.9,
+    "sugar": 0
+  },
+  {
+    "name": "chicken, broiler, rotisserie, bbq, back meat only",
+    "calories": 212,
+    "protein": 21.8,
+    "fat": 13.9,
+    "carbs": 0.31,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "tea, ginger",
+    "calories": 1,
+    "protein": 0.02,
+    "fat": 0.01,
+    "carbs": 0.18,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "ginger root, pickled",
+    "calories": 20,
+    "protein": 0.33,
+    "fat": 0.1,
+    "carbs": 4.83,
+    "fiber": 2.6,
+    "sugar": 0
+  },
+  {
+    "name": "whiskey and ginger ale",
+    "calories": 83,
+    "protein": 0,
+    "fat": 0,
+    "carbs": 6.59,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "spices, cumin seed",
+    "calories": 1570.0,
+    "protein": 17.8,
+    "fat": 22.3,
+    "carbs": 44.2,
+    "fiber": 10.5,
+    "sugar": 0
+  },
+  {
+    "name": "spices, oregano, dried",
+    "calories": 1110.0,
+    "protein": 9.0,
+    "fat": 4.28,
+    "carbs": 68.9,
+    "fiber": 42.5,
+    "sugar": 0
+  },
+  {
+    "name": "thyme, fresh",
+    "calories": 101,
+    "protein": 5.56,
+    "fat": 1.68,
+    "carbs": 24.4,
+    "fiber": 14.0,
+    "sugar": 0
+  },
+  {
+    "name": "spices, thyme, dried",
+    "calories": 1160.0,
+    "protein": 9.11,
+    "fat": 7.43,
+    "carbs": 63.9,
+    "fiber": 37.0,
+    "sugar": 0
+  },
+  {
+    "name": "chili with macaroni",
+    "calories": 126,
+    "protein": 8.99,
+    "fat": 3.65,
+    "carbs": 14.35,
+    "fiber": 2.8,
+    "sugar": 0
+  },
+  {
+    "name": "applebee's, chili",
+    "calories": 656,
+    "protein": 12.6,
+    "fat": 9.79,
+    "carbs": 4.57,
+    "fiber": 1.4,
+    "sugar": 0
+  },
+  {
+    "name": "chili with chicken",
+    "calories": 100,
+    "protein": 14.11,
+    "fat": 3.71,
+    "carbs": 2.41,
+    "fiber": 0.5,
+    "sugar": 0
+  },
+  {
+    "name": "bread, pumpkin",
+    "calories": 305,
+    "protein": 4.97,
+    "fat": 12.93,
+    "carbs": 43.21,
+    "fiber": 1.4,
+    "sugar": 0
+  },
+  {
+    "name": "cookie, pumpkin",
+    "calories": 450,
+    "protein": 6.2,
+    "fat": 18.1,
+    "carbs": 68.7,
+    "fiber": 2.8,
+    "sugar": 0
+  },
+  {
+    "name": "muffin, pumpkin",
+    "calories": 305,
+    "protein": 4.97,
+    "fat": 12.93,
+    "carbs": 43.21,
+    "fiber": 1.4,
+    "sugar": 0
+  },
+  {
+    "name": "pear, raw",
+    "calories": 59,
+    "protein": 0.37,
+    "fat": 0.15,
+    "carbs": 15.18,
+    "fiber": 3.1,
+    "sugar": 0
+  },
+  {
+    "name": "pear nectar",
+    "calories": 60,
+    "protein": 0.11,
+    "fat": 0.01,
+    "carbs": 15.76,
+    "fiber": 0.6,
+    "sugar": 0
+  },
+  {
+    "name": "pear, dried",
+    "calories": 262,
+    "protein": 1.87,
+    "fat": 0.63,
+    "carbs": 69.7,
+    "fiber": 7.5,
+    "sugar": 0
+  },
+  {
+    "name": "kiwi fruit, raw",
+    "calories": 64,
+    "protein": 1.06,
+    "fat": 0.44,
+    "carbs": 14,
+    "fiber": 3,
+    "sugar": 0
+  },
+  {
+    "name": "beverages, kiwi strawberry juice drink",
+    "calories": 47.0,
+    "protein": 0.0,
+    "fat": 0.0,
+    "carbs": 12.3,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "kiwifruit (kiwi), green, peeled, raw",
+    "calories": 0,
+    "protein": 1.01,
+    "fat": 0.64,
+    "carbs": 13.8,
+    "fiber": 2.13,
+    "sugar": 0
+  },
+  {
+    "name": "lemon, raw",
+    "calories": 29,
+    "protein": 1.1,
+    "fat": 0.3,
+    "carbs": 9.32,
+    "fiber": 2.8,
+    "sugar": 0
+  },
+  {
+    "name": "pie, lemon",
+    "calories": 280,
+    "protein": 2.41,
+    "fat": 16.16,
+    "carbs": 31.48,
+    "fiber": 0.7,
+    "sugar": 0
+  },
+  {
+    "name": "pie, lemon meringue",
+    "calories": 294,
+    "protein": 4.53,
+    "fat": 11.34,
+    "carbs": 43.69,
+    "fiber": 1.1,
+    "sugar": 0
+  },
+  {
+    "name": "lime souffle",
+    "calories": 328,
+    "protein": 8.82,
+    "fat": 15.02,
+    "carbs": 39.83,
+    "fiber": 0.8,
+    "sugar": 0
+  },
+  {
+    "name": "lime, raw",
+    "calories": 30,
+    "protein": 0.7,
+    "fat": 0.2,
+    "carbs": 10.54,
+    "fiber": 2.8,
+    "sugar": 0
+  },
+  {
+    "name": "limes, raw",
+    "calories": 126,
+    "protein": 0.7,
+    "fat": 0.2,
+    "carbs": 10.5,
+    "fiber": 2.8,
+    "sugar": 0
+  },
+  {
+    "name": "pomegranate, raw",
+    "calories": 83,
+    "protein": 1.67,
+    "fat": 1.17,
+    "carbs": 18.7,
+    "fiber": 4,
+    "sugar": 0
+  },
+  {
+    "name": "pomegranates, raw",
+    "calories": 83.0,
+    "protein": 1.67,
+    "fat": 1.17,
+    "carbs": 18.7,
+    "fiber": 4.0,
+    "sugar": 0
+  },
+  {
+    "name": "pomegranate juice, 100%",
+    "calories": 54,
+    "protein": 0.15,
+    "fat": 0.29,
+    "carbs": 13.13,
+    "fiber": 0.1,
+    "sugar": 0
+  },
+  {
+    "name": "pistachio nuts, nfs",
+    "calories": 572,
+    "protein": 21.05,
+    "fat": 45.82,
+    "carbs": 28.28,
+    "fiber": 10.3,
+    "sugar": 0
+  },
+  {
+    "name": "pistachio nuts, salted",
+    "calories": 576,
+    "protein": 20.22,
+    "fat": 46.98,
+    "carbs": 27.16,
+    "fiber": 9.9,
+    "sugar": 0
+  },
+  {
+    "name": "pistachio nuts, unsalted",
+    "calories": 582,
+    "protein": 20.42,
+    "fat": 47.44,
+    "carbs": 27.43,
+    "fiber": 10,
+    "sugar": 0
+  },
+  {
+    "name": "hazelnuts",
+    "calories": 628,
+    "protein": 14.95,
+    "fat": 60.75,
+    "carbs": 16.7,
+    "fiber": 9.7,
+    "sugar": 0
+  },
+  {
+    "name": "oil, hazelnut",
+    "calories": 3700.0,
+    "protein": 0.0,
+    "fat": 100,
+    "carbs": 0.0,
+    "fiber": 0.0,
+    "sugar": 0
+  },
+  {
+    "name": "chocolate hazelnut spread",
+    "calories": 539,
+    "protein": 5.41,
+    "fat": 29.73,
+    "carbs": 62.36,
+    "fiber": 5.4,
+    "sugar": 0
+  },
+  {
+    "name": "flaxseed oil",
+    "calories": 884,
+    "protein": 0.11,
+    "fat": 99.98,
+    "carbs": 0,
+    "fiber": 0,
+    "sugar": 0
+  },
+  {
+    "name": "flaxseed, ground",
+    "calories": 0,
+    "protein": 18.0,
+    "fat": 37.3,
+    "carbs": 34.4,
+    "fiber": 23.1,
+    "sugar": 0
+  },
+  {
+    "name": "seeds, flaxseed",
+    "calories": 2230.0,
+    "protein": 18.3,
+    "fat": 42.2,
+    "carbs": 28.9,
+    "fiber": 27.3,
+    "sugar": 0
+  },
+  {
+    "name": "dark chocolate candy",
+    "calories": 550,
+    "protein": 5.09,
+    "fat": 32.2,
+    "carbs": 59.97,
+    "fiber": 7.2,
+    "sugar": 0
+  },
+  {
+    "name": "dark chocolate candy with nuts",
+    "calories": 560,
+    "protein": 8.26,
+    "fat": 36.27,
+    "carbs": 52.18,
+    "fiber": 7.9,
+    "sugar": 0
+  },
+  {
+    "name": "candies, special dark chocolate bar",
+    "calories": 556,
+    "protein": 5.54,
+    "fat": 32.4,
+    "carbs": 60.5,
+    "fiber": 6.5,
+    "sugar": 0
+  },
+  {
+    "name": "candy, gummy",
+    "calories": 396,
+    "protein": 0,
+    "fat": 0,
+    "carbs": 98.9,
+    "fiber": 0.1,
+    "sugar": 0
+  }
+]
