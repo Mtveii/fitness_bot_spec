@@ -257,7 +257,14 @@ async def get_supplements(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
     from bot.scheduler.reminders import setup_scheduler, scheduler
-    setup_scheduler(context.bot, update.effective_user.id, d)
+
+    user_id = update.effective_user.id
+    prefix = f"supp_{user_id}_"
+    for job in scheduler.get_jobs():
+        if job.id.startswith(prefix):
+            job.remove()
+
+    setup_scheduler(context.bot, user_id, d)
     if not scheduler.running:
         scheduler.start()
 

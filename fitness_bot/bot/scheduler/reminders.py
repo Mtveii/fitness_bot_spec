@@ -34,7 +34,7 @@ async def check_nutrition_deficit(bot, user_id: int) -> None:
         if not user:
             return
 
-    if not _has_notification(user.__dict__, "nutrition_deficit"):
+    if not _has_notification({"settings": user.settings}, "nutrition_deficit"):
         return
 
     state = await get_today_state(user_id)
@@ -182,3 +182,22 @@ def setup_scheduler(bot, user_id: int, user_data: dict) -> None:
             id=f"water_{user_id}_{h}",
             replace_existing=True,
         )
+
+
+async def restore_all_schedulers(bot) -> None:
+    from bot.db.base import async_session
+    from bot.db import crud
+
+    async with async_session() as session:
+        users = await crud.get_all_users(session)
+
+    for user in users:
+        try:
+            setup_scheduler(bot, user.tg_id, {
+                "supplements": user.supplements or [],
+                "sleep_schedule": user.sleep_schedule or {},
+            })
+        except Exception as e:
+            logger.error(f"Failed to restore scheduler for user {user.tg_id}: {e}")
+
+    logger.info(f"Restored schedulers for {len(users)} users")

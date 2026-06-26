@@ -18,6 +18,7 @@ from bot.handlers.commands import (
     get_today_handler, get_weight_handler, get_sleep_handler,
     get_steps_handler, get_week_handler, get_settings_handler,
     get_cancel_handler, get_export_handler,
+    today, cancel_command,
 )
 from bot.scheduler.reminders import scheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -33,6 +34,65 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+INTENT_KEYWORDS = {
+    "today": ["сколько калорий", "сколько я съел", "мои калории", "баланс калорий",
+              "сколько осталось", "что я ел", "что я съел", "мой прогресс"],
+    "cancel": ["отмени", "удали последнее", "убери последний", "отмена записи"],
+    "weight_query": ["мой вес", "сколько я вешу", "текущий вес"],
+    "steps_query": ["мои шаги", "шаги сегодня", "сколько прошёл"],
+}
+
+
+def _match_hardcoded_intent(text: str) -> str | None:
+    low = text.lower()
+    for intent, phrases in INTENT_KEYWORDS.items():
+        if any(p in low for p in phrases):
+            return intent
+    return None
+
+
+async def _get_proactive_suggestion(user_id: int) -> str | None:
+    from datetime import datetime, UTC
+    from bot.db.base import async_session
+    from bot.db import crud
+    from bot.calculators.tdee import bmr as _bmr, tdee as _tdee
+    from bot.calculators.nutrition import daily_targets
+
+    async with async_session() as session:
+        user = await crud.get_user(session, user_id)
+        if not user:
+            return None
+        today_workout = await crud.get_today_workout(session, user.id)
+        last_sleep = await crud.get_last_sleep(session, user.id)
+
+    state = await get_today_state(user_id)
+    bmr_val = _bmr(user.gender, user.weight_kg, user.height_cm, user.age)
+    tdee_val = _tdee(bmr_val, user.activity_level, weight_kg=user.weight_kg)
+    targets = daily_targets(tdee_val, user.weight_kg, user.goal)
+
+    suggestions = []
+
+    if state["calories_in"] == 0:
+        suggestions.append(("high", "🍽 Ты сегодня ещё ничего не ел. Запиши приём пищи: «Съел 200г гречки с курицей»"))
+    if state["protein"] < targets["protein_g"] * 0.5:
+        deficit = targets["protein_g"] - state["protein"]
+        suggestions.append(("high", f"🥩 Белка совсем мало! Нужно ещё ~{deficit:.0f}г. Добавь творог, курицу или яйца."))
+    if not today_workout:
+        suggestions.append(("medium", "🏋️ Сегодня ещё не тренировался. Отправь /workout чтобы залогать."))
+    if not last_sleep or (datetime.now(UTC).replace(tzinfo=None) - last_sleep.date.replace(tzinfo=None)).days > 1:
+        suggestions.append(("medium", "😴 Нет данных о сне за последние дни. Запиши: «Лёг в 23, встал в 7»"))
+    if state["steps"] == 0:
+        suggestions.append(("low", "👟 Шагов пока 0. Прошёл немного — напиши «Прошёл 5000 шагов»"))
+
+    if not suggestions:
+        return None
+
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    suggestions.sort(key=lambda x: priority_order[x[0]])
+
+    lines = [s[1] for s in suggestions[:3]]
+    return "💡 Что можно сделать:\n" + "\n".join(lines)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -150,6 +210,35 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = update.effective_user.id
     chat = update.message.chat
 
+    intent = _match_hardcoded_intent(text)
+    if intent == "today":
+        await today(update, context)
+        return
+    if intent == "cancel":
+        await cancel_command(update, context)
+        return
+    if intent == "weight_query":
+        from bot.db.base import async_session
+        from bot.db import crud
+        async with async_session() as session:
+            user = await crud.get_user(session, user_id)
+        if user:
+            await chat.send_message(f"⚖️ Твой текущий вес: {user.weight_kg} кг")
+            return
+    if intent == "steps_query":
+        state = await get_today_state(user_id)
+        await chat.send_message(f"👟 Шаги сегодня: {state['steps']}")
+        return
+
+    low = text.lower()
+    GENERIC_KEYWORDS = ["привет", "помощь", "хелп", "что делать", "что умеешь",
+                        "помоги", "начать", "старт", "хай", "здарова"]
+    if any(kw in low for kw in GENERIC_KEYWORDS):
+        suggestion = await _get_proactive_suggestion(user_id)
+        if suggestion:
+            await chat.send_message(suggestion)
+            return
+
     # Debounce: быстрые подряд-сообщения склеиваются в один запрос к ИИ (P1.8)
     await debounce_message(user_id, text, lambda uid, t: _send_ai_reply(chat, uid, t, context.bot))
 
@@ -181,6 +270,9 @@ async def _send_ai_reply(chat, user_id: int, text: str, bot) -> None:
     try:
         from bot.ai.trainer import chat_with_trainer
         answer = await chat_with_trainer(user_id, text)
+    except Exception as e:
+        logger.error(f"AI error for user {user_id}: {e}", exc_info=True)
+        answer = None
     finally:
         stop_typing.set()
         typing_task.cancel()
@@ -225,10 +317,12 @@ async def post_init(app):
     scheduler.start()
     await start_health_server()
 
-    from bot.scheduler.reminders import reset_all_today_states
+    from bot.scheduler.reminders import reset_all_today_states, restore_all_schedulers
     async def midnight_reset():
         await reset_all_today_states(app.bot)
     scheduler.add_job(midnight_reset, CronTrigger(hour=0, minute=5), id="midnight_reset", replace_existing=True)
+
+    await restore_all_schedulers(app.bot)
 
     logger.info("Database initialized, scheduler started, health check running")
 

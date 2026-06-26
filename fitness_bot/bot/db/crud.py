@@ -34,6 +34,11 @@ async def get_user_by_id(session: AsyncSession, user_id: int) -> User | None:
     return result.scalar_one_or_none()
 
 
+async def get_all_users(session: AsyncSession) -> list[User]:
+    result = await session.execute(select(User))
+    return list(result.scalars().all())
+
+
 # ─── MealLog ─────────────────────────────────────────────────
 
 async def add_meal_log(

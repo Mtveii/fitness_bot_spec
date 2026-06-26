@@ -39,6 +39,7 @@ class User(Base):
     sleep_logs = relationship("SleepLog", back_populates="user", cascade="all, delete-orphan")
     supplement_logs = relationship("SupplementLog", back_populates="user", cascade="all, delete-orphan")
     weight_history = relationship("WeightHistory", back_populates="user", cascade="all, delete-orphan")
+    ai_usage_logs = relationship("AIUsageLog", back_populates="user", cascade="all, delete-orphan")
 
 
 class WorkoutProgram(Base):
@@ -176,4 +177,6 @@ class AIUsageLog(Base):
     provider = Column(String(20), nullable=False)
     tokens_in = Column(Integer, default=0)
     tokens_out = Column(Integer, default=0)
-    timestamp = Column(DateTime, default=_utcnow)
+    timestamp = Column(DateTime, default=_utcnow, index=True)
+
+    user = relationship("User", back_populates="ai_usage_logs")

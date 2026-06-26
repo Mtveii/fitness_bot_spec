@@ -44,16 +44,17 @@ async def build_context(user_id: int) -> dict:
 
     async with async_session() as session:
         user = await crud.get_user(session, user_id)
+        if not user:
+            return {"profile": None, "today": {}, "meals": [], "sleep": None}
+        last_meals = await crud.get_last_meal_logs(session, user.id, limit=3)
+        last_sleep = await crud.get_last_sleep(session, user.id)
 
     if not user:
         return {"profile": None, "today": {}, "meals": [], "sleep": None}
 
     state = await get_today_state(user_id)
 
-    last_meals = await crud.get_last_meal_logs(user_id, limit=3)
     meals_data = [{"name": m.food_name, "weight": m.weight_g, "kcal": m.calories} for m in last_meals]
-
-    last_sleep = await crud.get_last_sleep(user_id)
     sleep_data = {"hours": last_sleep.duration_hours} if last_sleep else None
 
     ctx = {

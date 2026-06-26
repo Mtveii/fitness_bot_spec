@@ -77,7 +77,7 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     sleep_text = "😴 Сон: —"
     if last_sleep:
-        days_ago = (now - last_sleep.date.replace(tzinfo=None)).days
+        days_ago = (now.replace(tzinfo=None) - last_sleep.date.replace(tzinfo=None)).days
         if days_ago <= 1:
             sleep_text = f"😴 Сон: {last_sleep.duration_hours:.1f}ч"
 
@@ -143,19 +143,19 @@ async def sleep(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         sleep_str = context.args[0]
         wake_str = context.args[1]
-        today = datetime.now(UTC).replace(tzinfo=None)
+        today_date = datetime.now(UTC).replace(tzinfo=None)
 
-        sleep_time = today.replace(
+        sleep_time = today_date.replace(
             hour=int(sleep_str.split(":")[0]),
             minute=int(sleep_str.split(":")[1])
         )
-        wake_time = today.replace(
+        wake_time = today_date.replace(
             hour=int(wake_str.split(":")[0]),
             minute=int(wake_str.split(":")[1])
         )
 
         if wake_time < sleep_time:
-            wake_time += __import__("datetime").timedelta(days=1)
+            wake_time += timedelta(days=1)
 
         duration = (wake_time - sleep_time).total_seconds() / 3600
 
@@ -206,7 +206,7 @@ async def week(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
         now = datetime.now(UTC)
-        week_start = now - __import__("datetime").timedelta(days=7)
+        week_start = now - timedelta(days=7)
 
         meals = await crud.get_meals_between(session, user.id, week_start, now)
         workouts = await crud.get_workout_logs_between(session, user.id, week_start, now)
@@ -218,6 +218,7 @@ async def week(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     days_with_meals = len(set(m.date.date() for m in meals))
+    days_with_workouts = len(set(w.date.date() for w in workouts)) if workouts else 0
     days = max(days_with_meals, 1)
 
     total_cal = sum(m.calories for m in meals)
@@ -236,12 +237,12 @@ async def week(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         weight_text = f"\n⚖️ Вес: {first:.1f} → {last:.1f}кг ({diff:+.1f}кг)"
 
     lines = [
-        f"📊 Неделя ({days} дн.)\n",
-        f"🔥 Среднее: {total_cal / days:.0f} ккал/день",
+        f"📊 Неделя ({days_with_meals} дн. с едой)\n",
+        f"🔥 Среднее: {total_cal / days:.0f} ккал/день (в дни приёмов)",
         f"🥩 Средний белок: {total_protein / days:.0f}г/день",
         f"🧈 Средние жиры: {total_fat / days:.0f}г/день",
         f"🍞 Средние углеводы: {total_carbs / days:.0f}г/день",
-        f"🏋️ Тренировок: {len(workouts)} | Объём: {total_workout_vol:.0f}кг",
+        f"🏋️ Тренировок: {len(workouts)} ({days_with_workouts} дн.) | Объём: {total_workout_vol:.0f}кг",
         f"🔥 Сожжено на тренировках: {total_workout_kcal:.0f}ккал",
     ]
 
@@ -257,7 +258,7 @@ async def week(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bmr_val = bmr(user.gender, user.weight_kg, user.height_cm, user.age)
     tdee_val = calc_tdee(bmr_val, user.activity_level, weight_kg=user.weight_kg)
     targets = daily_targets(tdee_val, user.weight_kg, user.goal)
-    avg_deficit = targets["calories"] - (total_cal / days)
+    avg_deficit = targets["calories"] - (total_cal / 7)
     lines.append(f"\n📉 Средний дефицит: {avg_deficit:+.0f} ккал/день")
 
     await update.message.reply_text("\n".join(lines))
@@ -284,13 +285,11 @@ async def settings_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         [InlineKeyboardButton("🔄 Сбросить всё", callback_data="reset")],
     ])
 
+    notif_status = "вкл" if all(settings.get("notifications", {}).values()) else "частично"
     await update.message.reply_text(
         f"⚙️ Настройки\n\n"
         f"🤖 Стиль ИИ: {personality}\n"
-        f"🔔 Уведомления: вкл" if all(settings.get("notifications", {}).values()) else
-        f"⚙️ Настройки\n\n"
-        f"🤖 Стиль ИИ: {personality}\n"
-        f"🔔 Уведомления: частично",
+        f"🔔 Уведомления: {notif_status}",
         reply_markup=keyboard
     )
     return SETTINGS_MENU
@@ -351,6 +350,7 @@ async def settings_toggle_notif(update: Update, context: ContextTypes.DEFAULT_TY
         return ConversationHandler.END
 
     key = query.data.replace("toggle_", "")
+    notif = {}
     async with async_session() as session:
         user = await crud.get_user(session, update.effective_user.id)
         if user:
