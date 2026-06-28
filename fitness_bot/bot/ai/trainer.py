@@ -4,6 +4,7 @@ P2.11 — кэш build_context() в Redis.
 P3.13 — логирование токенов.
 """
 import logging
+import time
 from bot.db.base import async_session
 from bot.db import crud
 from bot.cache.redis_client import (
@@ -14,9 +15,9 @@ from bot.ai.clients import ask_ai_race
 logger = logging.getLogger(__name__)
 
 PERSONALITY_PROMPTS = {
-    "friendly": "Ты дружелюбный фитнес-тренер. Поддерживаешь, объясняешь мягко. Отвечай на русском.",
-    "strict": "Ты строгий тренер. Говоришь по делу, без лишних эмоций. Отвечай на русском.",
-    "motivating": "Ты мотивирующий тренер. Энергичный, вдохновляешь на результат. Отвечай на русском.",
+    "friendly": "Ты дружелюбный фитнес-тренер. Коротко, по делу.",
+    "strict": "Ты строгий фитнес-тренер. Максимально коротко, без эмодзи.",
+    "motivating": "Ты мотивирующий тренер. Энергичный, коротко.",
 }
 
 SYSTEM_TEMPLATE = """{personality}
@@ -25,7 +26,7 @@ SYSTEM_TEMPLATE = """{personality}
 - Если вопрос о еде — оцени КБЖУ.
 - Если о тренировке — дай совет.
 - Если общее — поддержи.
-- Отвечай кратко, 2-4 предложения.
+- Отвечай МАКСИМАЛЬНО кратко: 1-2 коротких предложения, без вступлений и воды.
 - Не используй markdown."""
 
 ACTION_KEYWORDS = {
@@ -35,6 +36,15 @@ ACTION_KEYWORDS = {
     "LOG_STEPS": ("шаг", "прошёл", "прошел"),
     "UPDATE_WEIGHT": ("вес ", "взвес"),
 }
+
+
+def daily_targets_val(profile: dict) -> float:
+    from bot.calculators.tdee import bmr, tdee
+    from bot.calculators.nutrition import daily_targets
+    bmr_val = bmr(profile["gender"], profile["weight"], profile["height"], profile["age"])
+    tdee_val = tdee(bmr_val, profile["activity"], weight_kg=profile["weight"])
+    targets = daily_targets(tdee_val, profile["weight"], profile["goal"])
+    return targets.get("calories", 2000)
 
 
 async def build_context(user_id: int) -> dict:
@@ -48,9 +58,6 @@ async def build_context(user_id: int) -> dict:
             return {"profile": None, "today": {}, "meals": [], "sleep": None}
         last_meals = await crud.get_last_meal_logs(session, user.id, limit=3)
         last_sleep = await crud.get_last_sleep(session, user.id)
-
-    if not user:
-        return {"profile": None, "today": {}, "meals": [], "sleep": None}
 
     state = await get_today_state(user_id)
 
@@ -139,12 +146,15 @@ async def _execute_action(user_id: int, intent: str, text: str) -> None:
                         await invalidate_context(user_id)
 
 
-async def chat_with_trainer(user_id: int, text: str) -> str | None:
-    """Чат с ИИ-тренером. Возвращает ответ или None при полном падении ИИ."""
+async def _build_prompt(user_id: int, text: str) -> tuple[str, str] | None:
+    """Собирает (system_prompt, user_text). None если юзер не зарегистрирован."""
+    t0 = time.monotonic()
     ctx = await build_context(user_id)
+    t1 = time.monotonic()
+    logger.info(f"[TIMING] user={user_id} build_context={t1-t0:.2f}s")
 
     if not ctx.get("profile"):
-        return "Сначала выполни /onboarding, чтобы я знал твои параметры."
+        return None
 
     personality = PERSONALITY_PROMPTS.get(
         ctx["profile"].get("personality", "friendly"),
@@ -174,14 +184,11 @@ async def chat_with_trainer(user_id: int, text: str) -> str | None:
     context_data = "\n".join(context_lines)
     user_text = f"{context_data}\n{history_text}\nЧеловек: {text}"
 
-    result = await ask_ai_race(system_prompt, user_text, max_tokens=400)
+    return system_prompt, user_text
 
-    if not result:
-        return None
 
-    answer, provider, tok_in, tok_out = result
-
-    # P3.13: log tokens
+async def _after_ai_response(user_id: int, text: str, answer: str, provider: str, tok_in: int, tok_out: int) -> None:
+    """Общий хвост после получения ответа от ИИ: лог токенов, side-effects, история чата."""
     try:
         async with async_session() as session:
             user = await crud.get_user(session, user_id)
@@ -190,7 +197,6 @@ async def chat_with_trainer(user_id: int, text: str) -> str | None:
     except Exception as e:
         logger.warning(f"Failed to log AI usage: {e}")
 
-    # Detect and execute side-effect actions
     intent = _detect_intent(text)
     if intent:
         try:
@@ -198,9 +204,26 @@ async def chat_with_trainer(user_id: int, text: str) -> str | None:
         except Exception as e:
             logger.warning(f"Action execution failed: {e}")
 
-    # Save to chat history
     from bot.cache.redis_client import add_chat_message
     await add_chat_message(user_id, "user", text)
     await add_chat_message(user_id, "assistant", answer)
 
+
+async def chat_with_trainer(user_id: int, text: str) -> str | None:
+    """Чат с ИИ-тренером. Возвращает ответ или None при полном падении ИИ."""
+    built = await _build_prompt(user_id, text)
+    if built is None:
+        return "Сначала выполни /onboarding, чтобы я знал твои параметры."
+    system_prompt, user_text = built
+
+    t0 = time.monotonic()
+    result = await ask_ai_race(system_prompt, user_text, max_tokens=150)
+    t1 = time.monotonic()
+    logger.info(f"[TIMING] user={user_id} ask_ai_race={t1-t0:.2f}s provider={result[1] if result else 'none'}")
+
+    if not result:
+        return None
+
+    answer, provider, tok_in, tok_out = result
+    await _after_ai_response(user_id, text, answer, provider, tok_in, tok_out)
     return answer

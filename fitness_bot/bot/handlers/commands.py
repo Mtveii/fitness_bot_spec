@@ -44,12 +44,12 @@ DEFAULT_SETTINGS = {
 }
 
 
-def format_progress_bar(current: float, target: float, length: int = 10) -> str:
+def format_progress_bar(current: float, target: float, length: int = 5) -> str:
     if target <= 0:
-        return "⬜" * length
+        return "□" * length
     pct = min(current / target, 1.0)
     filled = round(pct * length)
-    return "🟩" * filled + "⬜" * (length - filled)
+    return "■" * filled + "□" * (length - filled)
 
 
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -75,36 +75,47 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     day_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
     day_name = day_names[now.weekday()]
 
-    sleep_text = "😴 Сон: —"
+    sleep_text = "😴 —"
     if last_sleep:
         days_ago = (now.replace(tzinfo=None) - last_sleep.date.replace(tzinfo=None)).days
         if days_ago <= 1:
-            sleep_text = f"😴 Сон: {last_sleep.duration_hours:.1f}ч"
+            sleep_text = f"😴 {last_sleep.duration_hours:.1f}ч"
 
     workout_text = ""
     if today_workout:
         workout_text = (
-            f"🏋️ {today_workout.workout_name} — "
-            f"объём {today_workout.total_volume:.0f}кг "
-            f"(+{today_workout.calories_burned:.0f} ккал)\n"
+            f"🏋️ {today_workout.workout_name}\n"
+            f"   Объём {today_workout.total_volume:.0f}кг (+{today_workout.calories_burned:.0f}ккал)\n"
         )
 
     balance = state["calories_in"] - targets["calories"]
 
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🍽 Еда", callback_data="qck_food"),
+            InlineKeyboardButton("🏋️ Тренировка", callback_data="qck_workout"),
+        ],
+        [
+            InlineKeyboardButton("👟 Шаги", callback_data="qck_steps"),
+            InlineKeyboardButton("😴 Сон", callback_data="qck_sleep"),
+        ],
+        [
+            InlineKeyboardButton("⚖️ Вес", callback_data="qck_weight"),
+            InlineKeyboardButton("📊 Неделя", callback_data="qck_week"),
+        ],
+    ])
+
     await update.message.reply_text(
         f"📅 {day_name}, {now.strftime('%d.%m')}\n\n"
-        f"🔥 Калории: {state['calories_in']:.0f} / {targets['calories']} "
-        f"{format_progress_bar(state['calories_in'], targets['calories'])} {cal_pct:.0f}%\n"
-        f"🥩 Белок: {state['protein']:.0f} / {targets['protein_g']}г "
-        f"{format_progress_bar(state['protein'], targets['protein_g'])} {prot_pct:.0f}%\n"
-        f"🧈 Жиры: {state['fat']:.0f} / {targets['fat_g']}г "
-        f"{format_progress_bar(state['fat'], targets['fat_g'])} {fat_pct:.0f}%\n"
-        f"🍞 Углеводы: {state['carbs']:.0f} / {targets['carbs_g']}г "
-        f"{format_progress_bar(state['carbs'], targets['carbs_g'])} {carb_pct:.0f}%\n\n"
-        f"👟 Шаги: {state['steps']}\n"
+        f"🔥 {state['calories_in']:.0f}/{targets['calories']:.0f} ккал {format_progress_bar(state['calories_in'], targets['calories'])} {cal_pct:.0f}%\n"
+        f"🥩 {state['protein']:.0f}/{targets['protein_g']:.0f}г {format_progress_bar(state['protein'], targets['protein_g'])} {prot_pct:.0f}%\n"
+        f"🧈 {state['fat']:.0f}/{targets['fat_g']:.0f}г {format_progress_bar(state['fat'], targets['fat_g'])} {fat_pct:.0f}%\n"
+        f"🍞 {state['carbs']:.0f}/{targets['carbs_g']:.0f}г {format_progress_bar(state['carbs'], targets['carbs_g'])} {carb_pct:.0f}%\n\n"
+        f"👟 {state['steps']}\n"
         f"{workout_text}"
         f"{sleep_text}\n\n"
-        f"⚖️ Баланс: {balance:+.0f} ккал"
+        f"⚖️ {balance:+.0f} ккал",
+        reply_markup=kb,
     )
 
 
@@ -499,3 +510,132 @@ def get_steps_handler() -> CommandHandler:
 
 def get_week_handler() -> CommandHandler:
     return CommandHandler("week", week)
+
+
+# ─── /progress — графики прогресса ──────────────────────────
+
+async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with async_session() as session:
+        user = await crud.get_user(session, update.effective_user.id)
+        if not user:
+            await update.message.reply_text("Сначала /onboarding")
+            return
+
+        days = int(context.args[0]) if context.args else 30
+        days = min(days, 90)
+
+        weight_history = await crud.get_weight_history(session, user.id, days=days)
+        sleep_logs = await crud.get_sleep_between(
+            session, user.id,
+            datetime.now(UTC) - timedelta(days=days),
+            datetime.now(UTC),
+        )
+
+    if not weight_history:
+        await update.message.reply_text("📊 Нет данных о весе. Запиши: /weight 85.5")
+        return
+
+    from bot.calculators.charts import weight_chart, sleep_chart
+
+    w_dates = [w.date for w in weight_history]
+    w_weights = [w.weight_kg for w in weight_history]
+    buf = weight_chart(w_dates, w_weights, target=user.target_weight_kg)
+    await update.message.reply_document(
+        document=buf, filename=f"weight_{days}d.png",
+        caption=f"⚖️ Вес за {days} дн. (цель: {user.target_weight_kg}кг)",
+    )
+
+    if sleep_logs:
+        s_dates = [s.date for s in sleep_logs]
+        s_durations = [s.duration_hours for s in sleep_logs]
+        buf = sleep_chart(s_dates, s_durations, target_hours=8.0)
+        await update.message.reply_document(
+            document=buf, filename=f"sleep_{days}d.png",
+            caption=f"😴 Сон за {days} дн.",
+        )
+
+
+def get_progress_handler() -> CommandHandler:
+    return CommandHandler("progress", progress)
+
+
+# ─── /suggest — предложение тренировок по слабым мышцам ──────
+
+async def suggest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with async_session() as session:
+        user = await crud.get_user(session, update.effective_user.id)
+        if not user:
+            await update.message.reply_text("Сначала /onboarding")
+            return
+
+        programs = await crud.get_user_programs(session, user.id)
+        today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        recent_logs = await crud.get_workout_logs_between(
+            session, user.id,
+            today - timedelta(days=14),
+            today + timedelta(days=1),
+        )
+
+    if not programs:
+        await update.message.reply_text(
+            "🏋️ У тебя пока нет программ. Создай: /new_workout"
+        )
+        return
+
+    muscle_volume: dict[str, float] = {}
+    muscle_count: dict[str, int] = {}
+    for log in recent_logs:
+        if log.exercise_sets:
+            for es in log.exercise_sets:
+                vol = es.weight_kg * es.reps
+                name_lower = es.exercise_name.lower()
+                for program in programs:
+                    for ex in program.exercises:
+                        if ex.name.lower() in name_lower:
+                            for mg in (ex.muscle_groups or []):
+                                muscle_volume[mg] = muscle_volume.get(mg, 0) + vol
+                                muscle_count[mg] = muscle_count.get(mg, 0) + 1
+
+    all_muscles = set()
+    for p in programs:
+        for ex in p.exercises:
+            for mg in (ex.muscle_groups or []):
+                all_muscles.add(mg)
+
+    if not all_muscles:
+        await update.message.reply_text("Не удалось определить группы мышц из твоих программ.")
+        return
+
+    muscle_avg = {}
+    for mg in all_muscles:
+        if mg in muscle_count and muscle_count[mg] > 0:
+            muscle_avg[mg] = muscle_volume[mg] / muscle_count[mg]
+        else:
+            muscle_avg[mg] = 0
+
+    sorted_muscles = sorted(muscle_avg.items(), key=lambda x: x[1])
+
+    lines = ["🏋️ Рекомендации по тренировкам:\n"]
+    for mg, avg_vol in sorted_muscles[:5]:
+        if avg_vol == 0:
+            lines.append(f"  ⚠️ {mg} — не тренировался последние 2 недели!")
+        else:
+            lines.append(f"  📉 {mg} — средний объём {avg_vol:.0f}кг (можно больше)")
+
+    today_name = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][datetime.now(UTC).weekday()]
+    today_program = None
+    for p in programs:
+        if p.day_of_week.lower() == today_name.lower():
+            today_program = p
+            break
+
+    if today_program:
+        ex_names = ", ".join(e.name for e in today_program.exercises)
+        lines.append(f"\n📅 Сегодня ({today_name}): {today_program.name}")
+        lines.append(f"   Упражнения: {ex_names}")
+
+    await update.message.reply_text("\n".join(lines))
+
+
+def get_suggest_handler() -> CommandHandler:
+    return CommandHandler("suggest", suggest)

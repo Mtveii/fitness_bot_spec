@@ -1,5 +1,5 @@
 from datetime import datetime, UTC, timedelta
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -330,3 +330,23 @@ async def get_last_workout_log(session: AsyncSession, user_id: int) -> WorkoutLo
         .order_by(WorkoutLog.id.desc()).limit(1)
     )
     return result.scalar_one_or_none()
+
+
+# ─── Admin helpers ─────────────────────────────────────────
+
+async def count_users(session: AsyncSession) -> int:
+    result = await session.execute(select(func.count()).select_from(User))
+    return result.scalar_one()
+
+
+async def get_ai_usage_summary(session: AsyncSession, since: datetime | None = None) -> list[dict]:
+    query = select(
+        AIUsageLog.provider,
+        func.count(AIUsageLog.id).label("requests"),
+        func.coalesce(func.sum(AIUsageLog.tokens_in), 0).label("tokens_in"),
+        func.coalesce(func.sum(AIUsageLog.tokens_out), 0).label("tokens_out"),
+    ).group_by(AIUsageLog.provider)
+    if since:
+        query = query.where(AIUsageLog.timestamp >= since)
+    result = await session.execute(query)
+    return [dict(row._mapping) for row in result.all()]

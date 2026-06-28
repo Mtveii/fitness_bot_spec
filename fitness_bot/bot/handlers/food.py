@@ -13,7 +13,7 @@ from bot.db.models import User
 from bot.cache.redis_client import get_today_state, update_today_state
 from bot.calculators.tdee import bmr, tdee
 from bot.calculators.nutrition import daily_targets
-from bot.ai.clients import ask_ai_race
+from bot.ai.clients import ask_ai_race, get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -76,14 +76,14 @@ async def search_food_usda(query: str) -> dict | None:
         return None
 
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(USDA_URL, params={
-                "api_key": USDA_API_KEY,
-                "query": query,
-                "pageSize": 3,
-            })
-            resp.raise_for_status()
-            data = resp.json()
+        client = get_http_client()
+        resp = await client.get(USDA_URL, params={
+            "api_key": USDA_API_KEY,
+            "query": query,
+            "pageSize": 3,
+        })
+        resp.raise_for_status()
+        data = resp.json()
 
         foods = data.get("foods", [])
         if not foods:

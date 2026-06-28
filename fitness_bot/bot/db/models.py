@@ -25,11 +25,16 @@ class User(Base):
     goal = Column(String(20), nullable=False)  # cut / bulk / recomp / maintain
     allergies = Column(JSON, default=list)
     favorite_foods = Column(JSON, default=list)
+    disliked_foods = Column(JSON, default=list)
+    dietary_preferences = Column(JSON, default=list)  # vegetarian, vegan, keto, etc.
+    cooking_level = Column(String(20), default="medium")  # none / simple / medium / good
+    food_notes = Column(Text, default="")  # any extra food-related info
     supplements = Column(JSON, default=list)  # [{name, dose, times: ["08:00"]}]
     sleep_schedule = Column(JSON, default=dict)  # {target_hours, preferred_sleep, preferred_wake}
     wake_time = Column(String(5), default="07:00")  # HH:MM
     workout_time = Column(String(5), default="18:00")  # HH:MM
     ai_personality = Column(String(20), default="friendly")  # friendly / strict / motivating
+    role = Column(String(20), default="user")  # user / admin / moderator
     settings = Column(JSON, default=dict)
     created_at = Column(DateTime, default=_utcnow)
 

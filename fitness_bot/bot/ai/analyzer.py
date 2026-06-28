@@ -1,102 +1,239 @@
-import logging
-from bot.db.base import async_session
-from bot.db import crud
+"""
+Умный анализатор сообщений без ИИ.
+Понимает естественный язык и даёт обратную связь на основе данных.
+"""
+import re
+from datetime import datetime, UTC, timedelta
 
-logger = logging.getLogger(__name__)
+
+MUSCLE_GROUPS = {
+    "грудь": ["грудь", "грудные", "жим", "разводка", "бабочка"],
+    "спина": ["спина", "тяга", "подтягивания", "ноги", "разгибание"],
+    "плечи": ["плечи", "дельты", "жим стоя", "разводка стоя"],
+    "руки": ["бицепс", "трицепс", "руки", "сгибание", "разгибание"],
+    "ноги": ["ноги", "квадрицепс", "бицепс бедра", "ягодицы", "присед", "жим ногами"],
+    "кардио": ["кардио", "бег", "велосипед", "эллипс", "скакалка"],
+}
 
 
-async def check_performance_drop(user_id: int, exercise_name: str) -> str | None:
-    """Проверяет спад силовых. Возвращает анализ если есть спад."""
-    async with async_session() as session:
-        user = await crud.get_user(session, user_id)
-        if not user:
-            return None
+def analyze_message(text: str, user_state: dict, targets: dict) -> dict:
+    """
+    Анализирует сообщение пользователя и возвращает:
+    - intent: распознанное намерение
+    - response: ответ (строка или None)
+    - action: данные для записи (dict или None)
+    """
+    low = text.lower().strip()
 
-        last_session = await crud.get_last_exercise_session(session, user_id, exercise_name)
-        if not last_session or not last_session.exercise_sets:
-            return None
+    # Проверка на еду
+    food_match = _parse_food_intent(low)
+    if food_match:
+        return {"intent": "food", "response": None, "action": food_match}
 
-        prev_best_weight = max(s.weight_kg for s in last_session.exercise_sets)
-        prev_total_reps = sum(s.reps for s in last_session.exercise_sets)
+    # Проверка на шаги
+    steps_match = _parse_steps_intent(low)
+    if steps_match:
+        return {"intent": "steps", "response": None, "action": steps_match}
 
-        second_last = None
-        all_logs = await crud.get_workout_logs_between(
-            session, user_id,
-            last_session.date - __import__("datetime").timedelta(days=30),
-            last_session.date
-        )
-        for log in all_logs:
-            if log.id != last_session.id and log.exercise_sets:
-                ex_sets = [s for s in log.exercise_sets if s.exercise_name == exercise_name]
-                if ex_sets:
-                    second_last = ex_sets
-                    break
+    # Проверка на вес
+    weight_match = _parse_weight_intent(low)
+    if weight_match:
+        return {"intent": "weight", "response": None, "action": weight_match}
 
-        if not second_last:
-            return None
+    # Проверка на сон
+    sleep_match = _parse_sleep_intent(low)
+    if sleep_match:
+        return {"intent": "sleep", "response": None, "action": sleep_match}
 
-        old_best = max(s.weight_kg for s in second_last)
-        old_reps = sum(s.reps for s in second_last)
+    # Проверка на "что делать" / "как дела" / general status
+    if any(w in low for w in ["как дела", "что делать", "что нужно", "статус", "прогресс"]):
+        return {"intent": "status", "response": _generate_status(user_state, targets), "action": None}
 
-        weight_drop = prev_best_weight < old_best * 0.95
-        reps_drop = prev_total_reps < old_reps * 0.9
+    # Проверка на "что ел" / "что сделал"
+    if any(w in low for w in ["что я ел", "что я сделал", "что было", "история"]):
+        return {"intent": "history", "response": _generate_history(user_state), "action": None}
 
-        if not weight_drop and not reps_drop:
-            return None
+    # Проверка на совет по тренировке
+    if any(w in low for w in ["что тренировать", "какие мышцы", "что качать", "тренировка"]):
+        return {"intent": "workout_advice", "response": _generate_workout_advice(user_state), "action": None}
 
-        context_parts = []
-        context_parts.append(f"Упражнение: {exercise_name}")
-        context_parts.append(f"Прошлая сессия: {old_best}кг, {old_reps} повторов")
-        context_parts.append(f"Текущая: {prev_best_weight}кг, {prev_total_reps} повторов")
+    # Проверка на "сколько осталось"
+    if any(w in low for w in ["сколько осталось", "сколько до цели", "дефицит", "профицит"]):
+        return {"intent": "deficit", "response": _generate_deficit_info(user_state, targets), "action": None}
 
-        last_sleep = await crud.get_last_sleep(session, user_id)
-        if last_sleep:
-            context_parts.append(f"Последний сон: {last_sleep.duration_hours:.1f}ч")
+    return {"intent": "unknown", "response": None, "action": None}
 
-        state = await (await __import__("bot.cache.redis_client", fromlist=["get_today_state"])).get_today_state(user_id)
-        context_parts.append(f"Калории сегодня: {state.get('calories_in', 0):.0f}")
-        context_parts.append(f"Белок сегодня: {state.get('protein', 0):.0f}г")
 
-        return "\n".join(context_parts)
+def _parse_food_intent(text: str) -> dict | None:
+    """Парсит сообщения о еде: 'съел 200г гречки', 'поел курицу 150г'"""
+    patterns = [
+        r"(?:съел|поел|выпил|ел|кушал)\s+(.+)",
+        r"(\d+)\s*(?:г|гр|грам)\s+(.+)",
+        r"(.+)\s+(\d+)\s*(?:г|гр|gram)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            groups = match.groups()
+            if len(groups) == 2:
+                # Пытаемся определить что число, а что текст
+                for g in groups:
+                    if re.match(r"\d+", g):
+                        weight = int(re.search(r"\d+", g).group())
+                        food = [x for x in groups if x != g][0].strip()
+                        return {"weight_g": weight, "food_name": food}
+                return {"weight_g": int(re.search(r"\d+", groups[0]).group()), "food_name": groups[1].strip()}
+
+    return None
+
+
+def _parse_steps_intent(text: str) -> dict | None:
+    """Парсит сообщения о шагах: 'прошёл 8000', '8000 шагов'"""
+    patterns = [
+        r"(?:прошл|прошёл|ходил|walk)\s+(\d+)",
+        r"(\d+)\s*(?:шаг|步)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            steps = int(match.group(1))
+            if 1 <= steps <= 100000:
+                return {"steps": steps}
 
     return None
 
 
-async def check_progression(user_id: int, exercise_name: str) -> str | None:
-    """Проверяет можно ли增加 вес. Возвращает suggestion или None."""
-    async with async_session() as session:
-        from sqlalchemy import select
-        from bot.db.models import WorkoutLog, ExerciseSet
+def _parse_weight_intent(text: str) -> dict | None:
+    """Парсит сообщения о весе: 'вес 85.5', 'взвесился 85.5'"""
+    patterns = [
+        r"(?:вес|взвес|вешу)\s*(\d+(?:[.,]\d+)?)",
+        r"(\d+(?:[.,]\d+)?)\s*(?:кг|kg)",
+    ]
 
-        result = await session.execute(
-            select(WorkoutLog).where(WorkoutLog.user_id == user_id)
-            .order_by(WorkoutLog.date.desc()).limit(10)
-        )
-        logs = list(result.scalars().all())
-
-        recent_sets = []
-        for log in logs:
-            sets_result = await session.execute(
-                select(ExerciseSet).where(
-                    ExerciseSet.log_id == log.id,
-                    ExerciseSet.exercise_name == exercise_name,
-                )
-            )
-            sets = list(sets_result.scalars().all())
-            if sets:
-                max_weight = max(s.weight_kg for s in sets)
-                max_reps = max(s.reps for s in sets)
-                recent_sets.append({"weight": max_weight, "reps": max_reps})
-
-        if len(recent_sets) < 3:
-            return None
-
-        last_3 = recent_sets[:3]
-        same_weight = all(s["weight"] == last_3[0]["weight"] for s in last_3)
-        all_top_reps = all(s["reps"] >= 10 for s in last_3)
-
-        if same_weight and all_top_reps:
-            new_weight = last_3[0]["weight"] + 2.5
-            return f"💪 Попробуй +2.5кг на {exercise_name}: {new_weight}кг в следующий раз!"
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            weight = float(match.group(1).replace(",", "."))
+            if 20 <= weight <= 300:
+                return {"weight_kg": weight}
 
     return None
+
+
+def _parse_sleep_intent(text: str) -> dict | None:
+    """Парсит сообщения о сне: 'лёг в 23, встал в 7'"""
+    patterns = [
+        r"(?:лег|лёг|спал|zasнул)\s*(?:в\s*)?(\d{1,2})[:\s]*(\d{0,2})",
+        r"(\d{1,2})[:\s]*(\d{2})\s*[-–]\s*(\d{1,2})[:\s]*(\d{2})",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            groups = match.groups()
+            if len(groups) == 4:
+                # Формат: HH:MM - HH:MM
+                sleep_h, sleep_m, wake_h, wake_m = map(int, groups)
+                return {
+                    "sleep_time": f"{sleep_h:02d}:{sleep_m:02d}",
+                    "wake_time": f"{wake_h:02d}:{wake_m:02d}",
+                }
+            elif len(groups) == 2:
+                # Формат: лег в HH
+                sleep_h = int(groups[0])
+                sleep_m = int(groups[1]) if groups[1] else 0
+                return {"sleep_time": f"{sleep_h:02d}:{sleep_m:02d}", "wake_time": None}
+
+    return None
+
+
+def _generate_status(state: dict, targets: dict) -> str:
+    """Генерирует статус на основе текущего состояния."""
+    lines = []
+
+    cal = state.get("calories_in", 0)
+    cal_target = targets.get("calories", 2000)
+    prot = state.get("protein", 0)
+    prot_target = targets.get("protein_g", 150)
+    steps = state.get("steps", 0)
+
+    # Калории
+    if cal == 0:
+        lines.append("🍽 Сегодня ещё ничего не ел.")
+    elif cal < cal_target * 0.5:
+        remaining = cal_target - cal
+        lines.append(f"🍽 Калорий: {cal:.0f}/{cal_target}. Осталось {remaining:.0f}.")
+    elif cal < cal_target:
+        remaining = cal_target - cal
+        lines.append(f"🍽 Почти норма: {cal:.0f}/{cal_target}. Ещё {remaining:.0f}.")
+    else:
+        over = cal - cal_target
+        lines.append(f"⚠️ Перебор: {cal:.0f}/{cal_target} (+{over:.0f})")
+
+    # Белок
+    if prot < prot_target * 0.5:
+        deficit = prot_target - prot
+        lines.append(f"🥩 Белок критически мало! {prot:.0f}/{prot_target}г. Нужно ещё {deficit:.0f}г.")
+    elif prot < prot_target:
+        deficit = prot_target - prot
+        lines.append(f"🥩 Белок: {prot:.0f}/{prot_target}г. Добавь {deficit:.0f}г.")
+
+    # Шаги
+    if steps == 0:
+        lines.append("👟 Шагов пока 0.")
+    elif steps < 5000:
+        lines.append(f"👟 Шаги: {steps}. До 5000 ещё {5000 - steps}.")
+    elif steps >= 10000:
+        lines.append(f"👟 Отлично! {steps} шагов!")
+    else:
+        lines.append(f"👟 Шаги: {steps}.")
+
+    return "\n".join(lines)
+
+
+def _generate_history(state: dict) -> str:
+    """Генерирует краткую историю за день."""
+    cal = state.get("calories_in", 0)
+    prot = state.get("protein", 0)
+    fat = state.get("fat", 0)
+    carbs = state.get("carbs", 0)
+    steps = state.get("steps", 0)
+
+    if cal == 0:
+        return "Сегодня ещё нет записей."
+
+    lines = [
+        f"📊 За сегодня:",
+        f"  Калории: {cal:.0f}ккал",
+        f"  Белок: {prot:.0f}г | Жиры: {fat:.0f}г | Углеводы: {carbs:.0f}г",
+        f"  Шаги: {steps}",
+    ]
+
+    return "\n".join(lines)
+
+
+def _generate_workout_advice(state: dict) -> str:
+    """Генерирует совет по тренировке на основе данных."""
+    now = datetime.now(UTC)
+    day_name = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][now.weekday()]
+
+    return (
+        f"📅 Сегодня {day_name}.\n"
+        f"Посмотри /suggest чтобы увидеть какие мышцы нуждаются в проработке."
+    )
+
+
+def _generate_deficit_info(state: dict, targets: dict) -> str:
+    """Генерирует информацию о дефиците/профиците."""
+    cal = state.get("calories_in", 0)
+    cal_target = targets.get("calories", 2000)
+    balance = cal - cal_target
+
+    if balance < -200:
+        return f"📉 Дефицит: {abs(balance):.0f}ккал. Можешь ещё поесть."
+    elif balance > 200:
+        return f"⚠️ Профицит: +{balance:.0f}ккал. Сегодня перебор."
+    else:
+        return f"✅ Баланс почти идеальный: {balance:+.0f}ккал."

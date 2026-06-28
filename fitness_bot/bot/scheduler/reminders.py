@@ -62,6 +62,55 @@ async def send_supplement_reminder(bot, user_id: int, supplement: dict) -> None:
     )
 
 
+async def send_all_supplements_reminder(bot, user_id: int) -> None:
+    from bot.db.base import async_session
+    from bot.db import crud
+
+    async with async_session() as session:
+        user = await crud.get_user(session, user_id)
+        if not user:
+            return
+
+    supplements = user.supplements or []
+    if not supplements:
+        return
+
+    now_time = datetime.now(UTC).strftime("%H:%M")
+    pending = []
+    for supp in supplements:
+        times = supp.get("times", [])
+        for t in times:
+            if t >= now_time:
+                pending.append(f"• {supp['name']} {supp['dose']} (в {t})")
+
+    if pending:
+        text = "💊 Сегодня нужно принять:\n" + "\n".join(pending)
+    else:
+        text = "💊 Все добавки за сегодня приняты!"
+
+    await send_message(bot, user_id, text)
+
+
+async def send_evening_steps_reminder(bot, user_id: int) -> None:
+    from bot.cache.redis_client import get_today_state
+
+    state = await get_today_state(user_id)
+    steps = state.get("steps", 0)
+
+    if steps == 0:
+        await send_message(bot, user_id,
+            "👟 Сегодня шагов 0! Пройдись хотя бы немного и запиши: «Прошёл 5000 шагов»"
+        )
+    elif steps < 5000:
+        await send_message(bot, user_id,
+            f"👟 Сегодня {steps} шагов. Ещё {5000 - steps} до минимума!"
+        )
+    else:
+        await send_message(bot, user_id,
+            f"👟 Отлично! {steps} шагов за сегодня."
+        )
+
+
 async def reset_all_today_states(bot) -> None:
     from bot.cache.redis_client import reset_today_state, USE_REDIS
     import json
@@ -182,6 +231,33 @@ def setup_scheduler(bot, user_id: int, user_data: dict) -> None:
             id=f"water_{user_id}_{h}",
             replace_existing=True,
         )
+
+    # Вечерняя сводка по добавкам (за час до сна)
+    if preferred_sleep:
+        try:
+            sh, sm = map(int, preferred_sleep.split(":"))
+            supp_summary_h = (sh - 1) % 24
+
+            async def supplement_summary():
+                await send_all_supplements_reminder(bot, user_id)
+
+            scheduler.add_job(
+                supplement_summary, CronTrigger(hour=supp_summary_h, minute=30),
+                id=f"supp_summary_{user_id}",
+                replace_existing=True,
+            )
+        except Exception:
+            pass
+
+    # Вечернее напоминание о шагах (21:00)
+    async def evening_steps():
+        await send_evening_steps_reminder(bot, user_id)
+
+    scheduler.add_job(
+        evening_steps, CronTrigger(hour=21, minute=0),
+        id=f"steps_evening_{user_id}",
+        replace_existing=True,
+    )
 
 
 async def restore_all_schedulers(bot) -> None:

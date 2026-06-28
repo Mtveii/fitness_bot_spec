@@ -3,17 +3,17 @@ import io
 import json
 import hashlib
 import logging
-import asyncio
 from bot.cache.redis_client import get_photo_cache, set_photo_cache
-from bot.ai.clients import get_gemini_model, GEMINI_API_KEY
+from bot.ai.clients import get_gemini_client, GEMINI_API_KEY, GEMINI_MODEL, GEMINI_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
 
 async def analyze_photo(photo_bytes: bytes) -> dict | None:
     """
-    Распознавание еды по фото через Gemini 2.0 Flash.
-    Возвращает {food_name, weight_g, calories, protein, fat, carbs} или None.
+    Распознавание еды по фото через Gemini 2.0 Flash (нативный async, новый SDK).
+    Уточняет КБЖУ через USDA по распознанному названию, если найдётся точное совпадение.
+    Возвращает {food_name, weight_g, calories, protein, fat, carbs, source} или None.
     """
     photo_hash = hashlib.md5(photo_bytes).hexdigest()
 
@@ -21,12 +21,14 @@ async def analyze_photo(photo_bytes: bytes) -> dict | None:
     if cached:
         return cached
 
-    if not GEMINI_API_KEY:
+    client = get_gemini_client()
+    if not client:
         logger.warning("GEMINI_API_KEY not set, skipping photo analysis")
         return None
 
     try:
-        model = get_gemini_model()
+        from google.genai import types
+        import PIL.Image
 
         prompt = (
             "Распознай еду на фото. Верни ТОЛЬКО JSON без markdown:\n"
@@ -35,13 +37,15 @@ async def analyze_photo(photo_bytes: bytes) -> dict | None:
             "Вес — примерная оценка в граммах. КБЖУ — на всю порцию."
         )
 
-        import PIL.Image
         img = PIL.Image.open(io.BytesIO(photo_bytes))
 
-        loop = asyncio.get_event_loop()
-        response = await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: model.generate_content([prompt, img])),
-            timeout=10.0,
+        response = await client.aio.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[prompt, img],
+            config=types.GenerateContentConfig(
+                temperature=0.3,
+                httpOptions=types.HttpOptions(timeout=int(GEMINI_TIMEOUT * 1000)),
+            ),
         )
 
         text = response.text.strip()
@@ -55,10 +59,26 @@ async def analyze_photo(photo_bytes: bytes) -> dict | None:
             logger.warning(f"Invalid Gemini response keys: {result.keys()}")
             return None
 
+        # Уточнение через USDA по распознанному названию (если найдётся точное совпадение)
+        try:
+            from bot.handlers.food import search_food_usda
+            usda_match = await search_food_usda(result["food_name"])
+            if usda_match:
+                scale = result["weight_g"] / 100.0
+                result["calories"] = usda_match["calories"] * scale
+                result["protein"] = usda_match["protein"] * scale
+                result["fat"] = usda_match["fat"] * scale
+                result["carbs"] = usda_match["carbs"] * scale
+                result["source"] = "usda_refined"
+            else:
+                result["source"] = "ai_estimate"
+        except Exception as e:
+            logger.warning(f"USDA refine skipped: {e}")
+            result["source"] = "ai_estimate"
+
         await set_photo_cache(photo_hash, result)
         return result
 
     except Exception as e:
         logger.error(f"Gemini photo analysis failed: {e}")
-        # Groq не поддерживает vision — фоллбэк только для текста
         return None

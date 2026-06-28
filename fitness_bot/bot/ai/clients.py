@@ -1,26 +1,40 @@
 """
 Единая точка инициализации Groq/Gemini клиентов + гонка провайдеров.
-P2.12 — system/user split для prompt caching.
-P3.13 — возврат токенов (text, provider, tok_in, tok_out).
+Gemini переведён на новый SDK google-genai (нативный async, без ThreadPoolExecutor).
+Цель: ответ за 3-4 секунды.
 """
 import os
 import asyncio
 import logging
+import httpx
 
 logger = logging.getLogger(__name__)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "llama-3.1-8b-instant"
 GEMINI_MODEL = "gemini-2.0-flash"
 
-GROQ_TIMEOUT = float(os.getenv("AI_GROQ_TIMEOUT", "6.0"))
-GEMINI_TIMEOUT = float(os.getenv("AI_GEMINI_TIMEOUT", "8.0"))
+# Агрессивные таймауты под цель 3-4с: если провайдер не ответил за это время —
+# не ждём, берём то что успело прийти от другого (или None)
+GROQ_TIMEOUT = float(os.getenv("AI_GROQ_TIMEOUT", "3.5"))
+GEMINI_TIMEOUT = float(os.getenv("AI_GEMINI_TIMEOUT", "10.0"))
 
 _groq_client = None
-_gemini_configured = False
-_gemini_models_cache: dict[str, object] = {}
+_gemini_client = None
+_http_client: httpx.AsyncClient | None = None
+
+
+def get_http_client() -> httpx.AsyncClient:
+    """Singleton HTTP-клиент с keep-alive — избегает нового TCP+TLS на каждый вызов."""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(
+            timeout=10.0,
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
+        )
+    return _http_client
 
 
 def get_groq_client():
@@ -31,27 +45,17 @@ def get_groq_client():
     return _groq_client
 
 
-def get_gemini_model(model_name: str = GEMINI_MODEL):
-    global _gemini_configured
-    import google.generativeai as genai
-    if not _gemini_configured and GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
-        _gemini_configured = True
-    return genai.GenerativeModel(model_name)
-
-
-def get_gemini_model_with_system(system: str, model_name: str = GEMINI_MODEL):
-    global _gemini_configured
-    import google.generativeai as genai
-    if not _gemini_configured and GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
-        _gemini_configured = True
-    key = str(hash(system))
-    if key not in _gemini_models_cache:
-        _gemini_models_cache[key] = genai.GenerativeModel(
-            model_name, system_instruction=system
+def get_gemini_client():
+    """Новый SDK google-genai — единый клиент, нативный async через client.aio."""
+    global _gemini_client
+    if _gemini_client is None and GEMINI_API_KEY:
+        from google import genai
+        from google.genai import types
+        _gemini_client = genai.Client(
+            api_key=GEMINI_API_KEY,
+            http_options=types.HttpOptions(timeout=int(GEMINI_TIMEOUT * 1000)),  # мс
         )
-    return _gemini_models_cache[key]
+    return _gemini_client
 
 
 async def _ask_groq(system: str, user_text: str, max_tokens: int):
@@ -81,29 +85,38 @@ async def _ask_groq(system: str, user_text: str, max_tokens: int):
         return None
 
 
-async def _ask_gemini(system: str, user_text: str):
-    """Returns (text, provider, tok_in, tok_out) or None."""
-    if not GEMINI_API_KEY:
+async def _ask_gemini(system: str, user_text: str, max_tokens: int):
+    """Returns (text, provider, tok_in, tok_out) or None. Нативный async, без executor."""
+    client = get_gemini_client()
+    if not client:
         return None
     try:
-        model = get_gemini_model_with_system(system)
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None, lambda: model.generate_content(user_text)
+        from google.genai import types
+        response = await client.aio.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=user_text,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=0.3,
+                max_output_tokens=max_tokens,
+                httpOptions=types.HttpOptions(timeout=int(GEMINI_TIMEOUT * 1000)),
+            ),
         )
         text = response.text.strip()
-        tok_in = getattr(getattr(response, "usage_metadata", None), "prompt_token_count", 0) or 0
-        tok_out = getattr(getattr(response, "usage_metadata", None), "candidates_token_count", 0) or 0
+        usage = getattr(response, "usage_metadata", None)
+        tok_in = getattr(usage, "prompt_token_count", 0) or 0
+        tok_out = getattr(usage, "candidates_token_count", 0) or 0
         return text, "gemini", tok_in, tok_out
     except Exception as e:
         logger.warning(f"Gemini failed: {e}")
         return None
 
 
-async def ask_ai_race(system: str, user_text: str, max_tokens: int = 350):
+async def ask_ai_race(system: str, user_text: str, max_tokens: int = 150):
     """
     Запускает Groq и Gemini ОДНОВРЕМЕННО.
     Возвращает (text, provider, tok_in, tok_out) или None.
+    Максимальное время ожидания = max(GROQ_TIMEOUT, GEMINI_TIMEOUT), не сумма.
     """
     tasks = {}
     if GROQ_API_KEY:
@@ -112,7 +125,7 @@ async def ask_ai_race(system: str, user_text: str, max_tokens: int = 350):
         )
     if GEMINI_API_KEY:
         tasks["gemini"] = asyncio.create_task(
-            asyncio.wait_for(_ask_gemini(system, user_text), timeout=GEMINI_TIMEOUT)
+            asyncio.wait_for(_ask_gemini(system, user_text, max_tokens), timeout=GEMINI_TIMEOUT)
         )
 
     if not tasks:
