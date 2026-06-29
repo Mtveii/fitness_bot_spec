@@ -15,7 +15,7 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = await crud.get_user(session, update.effective_user.id)
 
     if not user:
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "Ты ещё не зарегистрирован.\nНачни с /onboarding"
         )
         return
@@ -29,7 +29,7 @@ async def me(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         for s in (user.supplements or [])
     ) or "  нет"
 
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         f"👤 {user.name}\n\n"
         f"📋 Профиль:\n"
         f"  Пол: {'Муж' if user.gender == 'M' else 'Жен'}\n"

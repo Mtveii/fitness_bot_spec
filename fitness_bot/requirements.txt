@@ -11,3 +11,4 @@ Pillow
 python-dotenv
 aiohttp
 thefuzz
+psutil

@@ -2,6 +2,7 @@
 Admin panel v3: pure callback router, no ConversationHandler.
 """
 import asyncio
+import os
 import logging
 from datetime import datetime, UTC, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -12,6 +13,8 @@ from bot.db import crud
 from bot.config import ADMIN_ID
 
 logger = logging.getLogger(__name__)
+
+BOT_START_TIME = datetime.now(UTC)
 
 
 def _is_admin(user_id: int) -> bool:
@@ -25,6 +28,7 @@ def _admin_main_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("Сводка за неделю", callback_data="adm_summary")],
         [InlineKeyboardButton("Рассылка", callback_data="adm_broadcast")],
         [InlineKeyboardButton("Система", callback_data="adm_system")],
+        [InlineKeyboardButton("Управление ботом", callback_data="adm_botctl")],
         [InlineKeyboardButton("Назад в меню", callback_data="menu_main")],
     ])
 
@@ -77,6 +81,12 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await _broadcast_send(q, context)
     elif d == "adm_system":
         await _show_system(q)
+    elif d == "adm_botctl":
+        await _show_bot_control(q, context)
+    elif d == "adm_bot_restart":
+        await _confirm_restart(q)
+    elif d == "adm_bot_restart_do":
+        await _do_restart(q, context)
 
 
 async def admin_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -235,7 +245,6 @@ async def _broadcast_send(q, context) -> None:
 
 
 async def _show_system(q) -> None:
-    import os
     from bot.cache.redis_client import USE_REDIS
     from bot.scheduler.reminders import scheduler
 
@@ -259,3 +268,88 @@ async def _show_system(q) -> None:
         f"  USDA: {'OK' if os.getenv('USDA_API_KEY') else 'нет'}",
     ]
     await q.edit_message_text("\n".join(lines), reply_markup=_back_kb())
+
+
+# ─── Bot control ─────────────────────────────────────────────
+
+
+async def _show_bot_control(q, context) -> None:
+    uptime = datetime.now(UTC) - BOT_START_TIME
+    days, rem = divmod(int(uptime.total_seconds()), 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes = rem // 60
+
+    import shutil
+    disk = shutil.disk_usage("/")
+    disk_gb = disk.used / 1e9
+    disk_total = disk.total / 1e9
+    disk_pct = disk.used / disk.total * 100
+
+    try:
+        import psutil
+        proc = psutil.Process()
+        mem_mb = proc.memory_info().rss / 1e6
+        cpu_pct = proc.cpu_percent(interval=0.3)
+        mem_line = f"💾 RAM: {mem_mb:.0f}МБ"
+        cpu_line = f"⚙️ CPU: {cpu_pct:.0f}%"
+    except Exception:
+        mem_line = "💾 RAM: — (нужен psutil)"
+        cpu_line = "⚙️ CPU: — (нужен psutil)"
+
+    lines = [
+        "🤖 Управление ботом\n",
+        f"⏱ Uptime: {days}д {hours}ч {minutes}м",
+        f"🔄 Старт: {BOT_START_TIME.strftime('%H:%M %d.%m.%Y')}",
+        f"",
+        mem_line,
+        cpu_line,
+        f"💿 Диск: {disk_gb:.0f}/{disk_total:.0f}ГБ ({disk_pct:.0f}%)",
+    ]
+
+    service_name = "fitness-bot"
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Перезапустить бота", callback_data="adm_bot_restart")],
+        [InlineKeyboardButton("◀️ Назад", callback_data="adm_menu")],
+    ])
+    await q.edit_message_text("\n".join(lines), reply_markup=kb)
+
+
+async def _confirm_restart(q) -> None:
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Да, перезапустить", callback_data="adm_bot_restart_do")],
+        [InlineKeyboardButton("❌ Отмена", callback_data="adm_menu")],
+    ])
+    await q.edit_message_text(
+        "⚠️ Перезапустить бота?\n"
+        "Бот выключится на 1-2 секунды, "
+        "все текущие диалоги сохранятся.",
+        reply_markup=kb,
+    )
+
+
+async def _do_restart(q, context) -> None:
+    await q.edit_message_text("🔄 Перезапуск... Бот вернётся через пару секунд.")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "sudo", "systemctl", "restart", "fitness-bot.service",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+        if proc.returncode != 0:
+            proc2 = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", "restart", "fitness-bot",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc2.wait()
+            if proc2.returncode != 0:
+                await q.edit_message_text(
+                    "❌ Не удалось перезапустить. Нет прав sudo "
+                    "или сервис не найден.\n"
+                    "Попробуй вручную: sudo systemctl restart fitness-bot",
+                )
+                return
+        await q.edit_message_text("✅ Бот перезапущен!")
+    except Exception as e:
+        await q.edit_message_text(f"❌ Ошибка: {e}")

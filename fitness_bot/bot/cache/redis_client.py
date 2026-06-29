@@ -19,13 +19,19 @@ try:
     redis = aioredis.from_url(
         REDIS_URL,
         decode_responses=True,
-        retry_on_timeout=True,
-        socket_connect_timeout=2,
-        socket_timeout=2,
+        retry_on_timeout=False,
+        socket_connect_timeout=0.5,
+        socket_timeout=0.5,
     )
+    _loop = asyncio.new_event_loop()
+    _loop.run_until_complete(redis.ping())
+    _loop.close()
     USE_REDIS = True
+    logger.info("Redis connected")
 except Exception:
     logger.warning("Redis not available, using file-based state")
+    USE_REDIS = False
+    redis = None
 
 
 # ─── File-based fallback ─────────────────────────────────────
@@ -75,12 +81,43 @@ def _default_today() -> dict:
 
 DEFAULT_TODAY = _default_today()
 
+_CONSUMED_FIELDS = {"calories_in", "calories_out", "protein", "fat", "carbs", "steps", "workout_kcal"}
+
 
 def _today_key(user_id: int) -> str:
     return f"today:{user_id}:{date.today().isoformat()}"
 
 
-async def get_today_state(user_id: int) -> dict:
+async def _sanitize_and_persist(user_id: int, key: str | None, state: dict) -> dict:
+    sanitized = False
+    for k in _CONSUMED_FIELDS:
+        if k in state and state[k] < 0:
+            state[k] = 0
+            sanitized = True
+    if sanitized and key is not None:
+        for k in _CONSUMED_FIELDS:
+            await redis.hset(key, k, str(state[k]))
+        balance = state.get("calories_in", 0) - state.get("calories_out", 0)
+        await redis.hset(key, "balance", str(balance))
+    return state
+
+
+async def get_today_state(user_id: int, day: date | None = None) -> dict:
+    if day is not None and USE_REDIS:
+        try:
+            key = f"today:{user_id}:{day.isoformat()}"
+            data = await redis.hgetall(key)
+            if data:
+                result = {}
+                for k, v in data.items():
+                    try:
+                        result[k] = int(v) if k == "steps" else float(v)
+                    except (ValueError, TypeError):
+                        result[k] = DEFAULT_TODAY.get(k, 0)
+                return await _sanitize_and_persist(user_id, key, result)
+        except Exception as e:
+            logger.warning(f"Redis error: {e}")
+        return dict(DEFAULT_TODAY)
     if USE_REDIS:
         try:
             key = _today_key(user_id)
@@ -92,11 +129,19 @@ async def get_today_state(user_id: int) -> dict:
                         result[k] = int(v) if k == "steps" else float(v)
                     except (ValueError, TypeError):
                         result[k] = DEFAULT_TODAY.get(k, 0)
-                return result
+                return await _sanitize_and_persist(user_id, key, result)
         except Exception as e:
             logger.warning(f"Redis error: {e}")
 
-    return await _load_file_state(user_id)
+    state = await _load_file_state(user_id)
+    sanitized = False
+    for k in _CONSUMED_FIELDS:
+        if k in state and state[k] < 0:
+            state[k] = 0
+            sanitized = True
+    if sanitized:
+        await _save_file_state(user_id, state)
+    return state
 
 
 async def update_today_state(user_id: int, **kwargs) -> dict:
@@ -106,8 +151,16 @@ async def update_today_state(user_id: int, **kwargs) -> dict:
             if not await redis.exists(key):
                 await redis.hset(key, mapping={k: str(v) for k, v in DEFAULT_TODAY.items()})
             for k, v in kwargs.items():
-                if k in DEFAULT_TODAY:
-                    await redis.hset(key, k, str(v))
+                if k in DEFAULT_TODAY and k != "balance":
+                    current = await redis.hget(key, k)
+                    if k == "steps":
+                        current_val = int(current) if current else 0
+                        new_val = max(current_val + int(v), 0)
+                        await redis.hset(key, k, str(new_val))
+                    else:
+                        current_val = float(current) if current else 0.0
+                        new_val = max(current_val + float(v), 0.0)
+                        await redis.hset(key, k, str(new_val))
             data = await redis.hgetall(key)
             cal_in = float(data.get("calories_in", 0))
             cal_out = float(data.get("calories_out", 0))
@@ -119,8 +172,8 @@ async def update_today_state(user_id: int, **kwargs) -> dict:
 
     state = await _load_file_state(user_id)
     for k, v in kwargs.items():
-        if k in state:
-            state[k] = v
+        if k in state and k != "balance":
+            state[k] = max(state.get(k, 0) + v, 0)
     state["balance"] = state["calories_in"] - state["calories_out"]
     await _save_file_state(user_id, state)
     return state
@@ -223,6 +276,46 @@ async def invalidate_context(user_id: int) -> None:
 
 
 async def decrement_today_state(user_id: int, **kwargs) -> dict:
-    current = await get_today_state(user_id)
-    deltas = {k: current.get(k, 0) - v for k, v in kwargs.items() if k in current}
+    deltas = {k: -v for k, v in kwargs.items() if k in DEFAULT_TODAY}
     return await update_today_state(user_id, **deltas)
+
+
+# ─── Photo Cache ─────────────────────────────────────────────
+
+PHOTO_CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
+
+
+async def get_photo_cache(photo_hash: str) -> dict | None:
+    if USE_REDIS:
+        try:
+            data = await redis.get(f"photo:{photo_hash}")
+            if data:
+                return json.loads(data)
+        except Exception as e:
+            logger.warning(f"Redis error: {e}")
+        return None
+    path = DATA_DIR / "photo_cache" / f"{photo_hash}.json"
+    if path.exists():
+        try:
+            return json.loads(await asyncio.to_thread(path.read_text, encoding="utf-8"))
+        except Exception:
+            return None
+    return None
+
+
+async def set_photo_cache(photo_hash: str, result: dict) -> None:
+    if USE_REDIS:
+        try:
+            await redis.set(f"photo:{photo_hash}", json.dumps(result, ensure_ascii=False), ex=PHOTO_CACHE_TTL)
+            return
+        except Exception as e:
+            logger.warning(f"Redis error: {e}")
+    dir_path = DATA_DIR / "photo_cache"
+
+    def _write():
+        dir_path.mkdir(parents=True, exist_ok=True)
+        (dir_path / f"{photo_hash}.json").write_text(
+            json.dumps(result, ensure_ascii=False), encoding="utf-8"
+        )
+
+    await asyncio.to_thread(_write)

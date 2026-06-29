@@ -44,6 +44,7 @@ class User(Base):
     sleep_logs = relationship("SleepLog", back_populates="user", cascade="all, delete-orphan")
     supplement_logs = relationship("SupplementLog", back_populates="user", cascade="all, delete-orphan")
     weight_history = relationship("WeightHistory", back_populates="user", cascade="all, delete-orphan")
+    daily_summaries = relationship("DailySummary", back_populates="user", cascade="all, delete-orphan")
     ai_usage_logs = relationship("AIUsageLog", back_populates="user", cascade="all, delete-orphan")
 
 
@@ -172,6 +173,24 @@ class WeightHistory(Base):
     weight_kg = Column(Float, nullable=False)
 
     user = relationship("User", back_populates="weight_history")
+
+
+class DailySummary(Base):
+    __tablename__ = "daily_summaries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    date = Column(DateTime, nullable=False)  # начало дня (00:00)
+    calories_in = Column(Float, default=0)
+    calories_out = Column(Float, default=0)
+    protein = Column(Float, default=0)
+    fat = Column(Float, default=0)
+    carbs = Column(Float, default=0)
+    steps = Column(Integer, default=0)
+    workout_kcal = Column(Float, default=0)
+    balance = Column(Float, default=0)
+
+    user = relationship("User", back_populates="daily_summaries")
 
 
 class AIUsageLog(Base):

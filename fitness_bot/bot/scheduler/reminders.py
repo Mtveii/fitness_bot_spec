@@ -16,6 +16,19 @@ async def send_message(bot, user_id: int, text: str) -> None:
         logger.error(f"Failed to send message to {user_id}: {e}")
 
 
+async def _notif_enabled(user_id: int, key: str) -> bool:
+    from bot.db.base import async_session
+    from bot.db import crud
+    try:
+        async with async_session() as session:
+            user = await crud.get_user(session, user_id)
+            if user and user.settings:
+                return user.settings.get("notifications", {}).get(key, True)
+    except Exception as e:
+        logger.warning(f"Failed to check notification {key} for {user_id}: {e}")
+    return True
+
+
 def _has_notification(user_data: dict, key: str) -> bool:
     settings = user_data.get("settings", {})
     notif = settings.get("notifications", {})
@@ -53,10 +66,14 @@ async def check_nutrition_deficit(bot, user_id: int) -> None:
 
 
 async def send_weigh_reminder(bot, user_id: int) -> None:
+    if not await _notif_enabled(user_id, "weigh_in"):
+        return
     await send_message(bot, user_id, "⚖️ Время взвешиться! Напиши /weight [кг]")
 
 
 async def send_supplement_reminder(bot, user_id: int, supplement: dict) -> None:
+    if not await _notif_enabled(user_id, "supplements"):
+        return
     await send_message(bot, user_id,
         f"💊 Не забудь: {supplement['name']} {supplement['dose']}"
     )
@@ -70,6 +87,9 @@ async def send_all_supplements_reminder(bot, user_id: int) -> None:
         user = await crud.get_user(session, user_id)
         if not user:
             return
+
+    if not _has_notification({"settings": user.settings}, "supplements"):
+        return
 
     supplements = user.supplements or []
     if not supplements:
@@ -92,6 +112,8 @@ async def send_all_supplements_reminder(bot, user_id: int) -> None:
 
 
 async def send_evening_steps_reminder(bot, user_id: int) -> None:
+    if not await _notif_enabled(user_id, "steps"):
+        return
     from bot.cache.redis_client import get_today_state
 
     state = await get_today_state(user_id)
@@ -154,6 +176,8 @@ def setup_scheduler(bot, user_id: int, user_data: dict) -> None:
     )
 
     async def send_weekly_report():
+        if not _has_notification(user_data, "weekly_report"):
+            return
         await send_message(bot, user_id,
             "📊 Недельный отчёт готов! Напиши /week чтобы посмотреть."
         )
@@ -176,6 +200,8 @@ def setup_scheduler(bot, user_id: int, user_data: dict) -> None:
                 h += 24
 
             async def send_sleep_reminder():
+                if not _has_notification(user_data, "sleep"):
+                    return
                 await send_message(bot, user_id, "🌙 Скоро время сна!")
 
             scheduler.add_job(
@@ -192,6 +218,21 @@ def setup_scheduler(bot, user_id: int, user_data: dict) -> None:
             h, m = map(int, preferred_wake.split(":"))
 
             async def send_wake_reminder():
+                if not _has_notification(user_data, "sleep"):
+                    return
+                from bot.cache.redis_client import get_today_state
+                state = await get_today_state(user_id)
+                if state.get("calories_in", 0) > 0 or state.get("steps", 0) > 0:
+                    return
+                from bot.db.base import async_session
+                from bot.db import crud
+                async with async_session() as session:
+                    user = await crud.get_user(session, user_id)
+                    if user:
+                        today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+                        meals = await crud.get_meals_between(session, user.id, today_start, datetime.now(UTC))
+                        if meals:
+                            return
                 await send_message(bot, user_id, "🌅 Доброе утро!")
 
             scheduler.add_job(
@@ -223,6 +264,8 @@ def setup_scheduler(bot, user_id: int, user_data: dict) -> None:
 
     # P4.19: water reminders — каждые 2 часа с 8 до 22
     async def send_water_reminder():
+        if not _has_notification(user_data, "water"):
+            return
         await send_message(bot, user_id, "💧 Не забудь попить воды!")
 
     for h in range(8, 23, 2):
@@ -272,6 +315,7 @@ async def restore_all_schedulers(bot) -> None:
             setup_scheduler(bot, user.tg_id, {
                 "supplements": user.supplements or [],
                 "sleep_schedule": user.sleep_schedule or {},
+                "settings": user.settings or {},
             })
         except Exception as e:
             logger.error(f"Failed to restore scheduler for user {user.tg_id}: {e}")

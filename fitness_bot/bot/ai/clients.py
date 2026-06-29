@@ -99,7 +99,7 @@ async def _ask_gemini(system: str, user_text: str, max_tokens: int):
                 system_instruction=system,
                 temperature=0.3,
                 max_output_tokens=max_tokens,
-                httpOptions=types.HttpOptions(timeout=int(GEMINI_TIMEOUT * 1000)),
+                http_options=types.HttpOptions(timeout=int(GEMINI_TIMEOUT * 1000)),
             ),
         )
         text = response.text.strip()

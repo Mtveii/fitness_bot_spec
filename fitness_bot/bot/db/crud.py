@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from bot.db.models import (
     User, WorkoutProgram, Exercise, WorkoutLog, ExerciseSet,
-    MealLog, FoodItem, SleepLog, SupplementLog, WeightHistory, AIUsageLog
+    MealLog, FoodItem, SleepLog, SupplementLog, WeightHistory, DailySummary, AIUsageLog
 )
 
 
@@ -338,6 +338,30 @@ async def count_users(session: AsyncSession) -> int:
     result = await session.execute(select(func.count()).select_from(User))
     return result.scalar_one()
 
+
+# ─── DailySummary ─────────────────────────────────────────────
+
+async def save_daily_summary(
+    session: AsyncSession, user_id: int, day: datetime,
+    state: dict,
+) -> DailySummary:
+    summary = DailySummary(
+        user_id=user_id, date=day,
+        calories_in=state.get("calories_in", 0),
+        calories_out=state.get("calories_out", 0),
+        protein=state.get("protein", 0),
+        fat=state.get("fat", 0),
+        carbs=state.get("carbs", 0),
+        steps=state.get("steps", 0),
+        workout_kcal=state.get("workout_kcal", 0),
+        balance=state.get("balance", 0),
+    )
+    session.add(summary)
+    await session.commit()
+    return summary
+
+
+# ─── AI Usage ─────────────────────────────────────────────────
 
 async def get_ai_usage_summary(session: AsyncSession, since: datetime | None = None) -> list[dict]:
     query = select(

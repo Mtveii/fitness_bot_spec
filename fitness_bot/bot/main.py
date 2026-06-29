@@ -3,6 +3,7 @@ import time
 import signal
 import asyncio
 import logging
+from datetime import datetime, UTC, timedelta, date
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -10,7 +11,8 @@ from telegram.ext import (
     ContextTypes, filters,
 )
 
-from bot.db.base import init_db
+from bot.db.base import init_db, async_session
+from bot.db import crud
 from bot.handlers.onboarding import get_onboarding_handler, onb_restart_callback
 from bot.handlers.profile import get_me_handler
 from bot.handlers.food import get_food_handler
@@ -19,12 +21,15 @@ from bot.handlers.commands import (
     get_today_handler, get_weight_handler, get_sleep_handler,
     get_steps_handler, get_week_handler, get_settings_handler,
     get_cancel_handler, get_export_handler,
-    get_progress_handler, get_suggest_handler,
+    get_progress_handler, get_suggest_handler, get_debug_handler,
     today, cancel_command,
 )
 from bot.handlers.admin import admin_entry, admin_callback, admin_text_input, _is_admin
 from bot.scheduler.reminders import scheduler
 from apscheduler.triggers.cron import CronTrigger
+from bot.calculators.tdee import bmr, tdee
+from bot.calculators.nutrition import daily_targets
+from bot.handlers.commands import format_progress_bar
 from bot.cache.redis_client import get_today_state, update_today_state
 from bot.queue.throttle import is_rate_limited
 from bot.config import ADMIN_ID
@@ -97,7 +102,29 @@ async def _get_proactive_suggestion(user_id: int) -> str | None:
     return "Что можно сделать:\n" + "\n".join(lines)
 
 
-# ─── Start / Menu ──────────────────────────────────────────
+# ─── Menu ─────────────────────────────────────────────────
+
+def _build_main_menu(is_admin: bool) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton("📊 Сегодня", callback_data="menu_today"),
+         InlineKeyboardButton("🍽 Записать еду", callback_data="menu_food")],
+        [InlineKeyboardButton("🏋️ Тренировка", callback_data="menu_workout"),
+         InlineKeyboardButton("⚖️ Вес", callback_data="menu_weight")],
+        [InlineKeyboardButton("😴 Сон", callback_data="menu_sleep"),
+         InlineKeyboardButton("👟 Шаги", callback_data="menu_steps")],
+        [InlineKeyboardButton("🧍 Профиль", callback_data="menu_me"),
+         InlineKeyboardButton("💡 Рекомендации", callback_data="menu_suggest")],
+        [InlineKeyboardButton("📈 Графики", callback_data="menu_charts"),
+         InlineKeyboardButton("📅 Неделя", callback_data="menu_week")],
+        [InlineKeyboardButton("⚙️ Настройки", callback_data="menu_settings"),
+         InlineKeyboardButton("💬 Тренер", callback_data="menu_chat")],
+        [InlineKeyboardButton("🔬 Отладка", callback_data="menu_debug"),
+         InlineKeyboardButton("❓ Помощь", callback_data="menu_help")],
+    ]
+    if is_admin:
+        rows.append([InlineKeyboardButton("🔧 Админ-панель", callback_data="menu_admin")])
+    return InlineKeyboardMarkup(rows)
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -107,24 +134,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = await crud.get_user(session, user_id)
     is_admin = user and user.role == "admin"
 
-    rows = [
-        [InlineKeyboardButton("📊 Сегодня", callback_data="menu_today"),
-         InlineKeyboardButton("🍽 Записать еду", callback_data="menu_food")],
-        [InlineKeyboardButton("🏋️ Тренировка", callback_data="menu_workout"),
-         InlineKeyboardButton("⚖️ Вес", callback_data="menu_weight")],
-        [InlineKeyboardButton("📈 Графики", callback_data="menu_charts"),
-         InlineKeyboardButton("📅 Неделя", callback_data="menu_week")],
-        [InlineKeyboardButton("⚙️ Настройки", callback_data="menu_settings"),
-         InlineKeyboardButton("❓ Помощь", callback_data="menu_help")],
-        [InlineKeyboardButton("💬 Спросить тренера", callback_data="menu_chat")],
-    ]
-    if is_admin:
-        rows.append([InlineKeyboardButton("🔧 Админ-панель", callback_data="menu_admin")])
-
-    kb = InlineKeyboardMarkup(rows)
     await update.message.reply_text(
         f"Привет, {update.effective_user.first_name}!",
-        reply_markup=kb,
+        reply_markup=_build_main_menu(is_admin),
     )
 
 
@@ -136,24 +148,11 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         user = await crud.get_user(session, user_id)
     is_admin = user and user.role == "admin"
 
-    rows = [
-        [InlineKeyboardButton("📊 Сегодня", callback_data="menu_today"),
-         InlineKeyboardButton("🍽 Записать еду", callback_data="menu_food")],
-        [InlineKeyboardButton("🏋️ Тренировка", callback_data="menu_workout"),
-         InlineKeyboardButton("⚖️ Вес", callback_data="menu_weight")],
-        [InlineKeyboardButton("📈 Графики", callback_data="menu_charts"),
-         InlineKeyboardButton("📅 Неделя", callback_data="menu_week")],
-        [InlineKeyboardButton("⚙️ Настройки", callback_data="menu_settings"),
-         InlineKeyboardButton("❓ Помощь", callback_data="menu_help")],
-        [InlineKeyboardButton("💬 Спросить тренера", callback_data="menu_chat")],
-    ]
-    if is_admin:
-        rows.append([InlineKeyboardButton("🔧 Админ-панель", callback_data="menu_admin")])
-
-    await update.message.reply_text("Меню:", reply_markup=InlineKeyboardMarkup(rows))
+    await update.message.reply_text("📌 Главное меню:", reply_markup=_build_main_menu(is_admin))
 
 
 # ─── Menu callback router ──────────────────────────────────
+
 
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
@@ -164,153 +163,404 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await _show_main_menu(q, q.from_user.id)
 
     elif d == "menu_today":
-        await today(update, context)
-        kb = _menu_back_kb()
-        await q.message.reply_text("Сводка выше", reply_markup=kb)
+        async with async_session() as session:
+            user = await crud.get_user(session, q.from_user.id)
+            if not user:
+                await q.edit_message_text("Сначала /onboarding", reply_markup=_BACK())
+                return
+            today_workout = await crud.get_today_workout(session, user.id)
+            last_sleep = await crud.get_last_sleep(session, user.id)
+        state = await get_today_state(q.from_user.id)
+        bmr_val = bmr(user.gender, user.weight_kg, user.height_cm, user.age)
+        tdee_val = tdee(bmr_val, user.activity_level, weight_kg=user.weight_kg)
+        targets = daily_targets(tdee_val, user.weight_kg, user.goal)
+        now = datetime.now(UTC)
+        day_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+        cal_pct = (state["calories_in"] / targets["calories"] * 100) if targets["calories"] > 0 else 0
+        prot_pct = (state["protein"] / targets["protein_g"] * 100) if targets["protein_g"] > 0 else 0
+        fat_pct = (state["fat"] / targets["fat_g"] * 100) if targets["fat_g"] > 0 else 0
+        carb_pct = (state["carbs"] / targets["carbs_g"] * 100) if targets["carbs_g"] > 0 else 0
+        sleep_text = "😴 —"
+        if last_sleep:
+            days_ago = (now.replace(tzinfo=None) - last_sleep.date.replace(tzinfo=None)).days
+            if days_ago <= 1:
+                sleep_text = f"😴 {last_sleep.duration_hours:.1f}ч"
+        workout_text = ""
+        if today_workout:
+            workout_text = f"🏋️ {today_workout.workout_name}\n   Объём {today_workout.total_volume:.0f}кг (+{today_workout.calories_burned:.0f}ккал)\n"
+        balance = state["calories_in"] - targets["calories"]
+        from bot.handlers.commands import format_progress_bar
+        text = (
+            f"📅 {day_names[now.weekday()]}, {now.strftime('%d.%m')}\n\n"
+            f"🔥 {state['calories_in']:.0f}/{targets['calories']:.0f} ккал {format_progress_bar(state['calories_in'], targets['calories'])} {cal_pct:.0f}%\n"
+            f"🥩 {state['protein']:.0f}/{targets['protein_g']:.0f}г {format_progress_bar(state['protein'], targets['protein_g'])} {prot_pct:.0f}%\n"
+            f"🧈 {state['fat']:.0f}/{targets['fat_g']:.0f}г {format_progress_bar(state['fat'], targets['fat_g'])} {fat_pct:.0f}%\n"
+            f"🍞 {state['carbs']:.0f}/{targets['carbs_g']:.0f}г {format_progress_bar(state['carbs'], targets['carbs_g'])} {carb_pct:.0f}%\n\n"
+            f"👟 {state['steps']}\n{workout_text}{sleep_text}\n\n"
+            f"⚖️ {balance:+.0f} ккал"
+        )
+        await q.edit_message_text(text, reply_markup=_BACK())
 
     elif d == "menu_food":
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📷 Фото еды", callback_data="menu_food_photo")],
-            [InlineKeyboardButton("✏️ Текстом", callback_data="menu_food_text")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="menu_main")],
-        ])
         await q.edit_message_text(
-            "Как записать еду?\n\n"
-            "Отправь фото — распознаю\n"
-            "Или напиши текстом:",
-            reply_markup=kb,
+            "🍽 Как записать еду?",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📷 Фото еды", callback_data="menu_food_photo")],
+                [InlineKeyboardButton("✏️ Текстом", callback_data="menu_food_text")],
+                [InlineKeyboardButton("◀️ В меню", callback_data="menu_main")],
+            ]),
         )
 
     elif d == "menu_food_photo":
-        await q.edit_message_text("Отправь фото еды:")
         context.user_data["awaiting_photo"] = True
+        await q.edit_message_text(
+            "📷 Отправь фото еды:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="menu_food")],
+            ]),
+        )
 
     elif d == "menu_food_text":
         await q.edit_message_text(
-            "Введи что съел:\n\n"
+            "✏️ Введи что съел:\n\n"
             "Примеры:\n"
-            "- 200г гречки с курицей\n"
-            "- съел 150г творога\n"
-            "- поел кашу 300г",
+            "• 200г гречки с курицей\n"
+            "• 150г творога\n"
+            "• поел кашу 300г",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="menu_food")],
+            ]),
         )
 
     elif d == "menu_workout":
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("▶️ Начать тренировку", callback_data="menu_workout_log")],
-            [InlineKeyboardButton("➕ Создать программу", callback_data="menu_workout_new")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="menu_main")],
-        ])
-        await q.edit_message_text("Тренировки:", reply_markup=kb)
+        await q.edit_message_text(
+            "🏋️ Тренировки:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("▶️ Начать тренировку", callback_data="menu_workout_log")],
+                [InlineKeyboardButton("➕ Создать программу", callback_data="menu_workout_new")],
+                [InlineKeyboardButton("◀️ В меню", callback_data="menu_main")],
+            ]),
+        )
 
     elif d == "menu_workout_log":
-        await q.edit_message_text("Начни тренировку: /workout")
+        await q.edit_message_text(
+            "🏋️ Начни тренировку: /workout",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="menu_workout")],
+            ]),
+        )
 
     elif d == "menu_workout_new":
-        await q.edit_message_text("Создай программу: /new_workout")
+        await q.edit_message_text(
+            "➕ Создай программу: /new_workout",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="menu_workout")],
+            ]),
+        )
 
     elif d == "menu_sleep":
         await q.edit_message_text(
-            "Запиши сон:\n\n"
-            "Формат: /sleep 23:00 07:00\n"
-            "Где первый параметр — когда лег, второй — когда встал",
+            "😴 Запиши сон:\n\n"
+            "Формат: /sleep 23:00 07:00",
+            reply_markup=_BACK(),
         )
 
     elif d == "menu_steps":
         await q.edit_message_text(
-            "Запиши шаги:\n\n"
+            "👟 Запиши шаги:\n\n"
             "Формат: /steps 8000\n"
             "Или просто напиши: прошёл 8000",
+            reply_markup=_BACK(),
         )
 
     elif d == "menu_weight":
         await q.edit_message_text(
-            "Обнови вес:\n\n"
+            "⚖️ Обнови вес:\n\n"
             "Формат: /weight 85.5\n"
             "Или просто напиши: вес 85.5",
+            reply_markup=_BACK(),
         )
 
     elif d == "menu_charts":
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🏋️ Вес и тренировки", callback_data="chart_workout_weight")],
-            [InlineKeyboardButton("🔥 Калории (баланс)", callback_data="chart_calories")],
-            [InlineKeyboardButton("😴 Сон", callback_data="chart_sleep")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="menu_main")],
-        ])
-        await q.edit_message_text("Какой график показать?", reply_markup=kb)
+        await q.edit_message_text(
+            "📈 Какой график показать?",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🏋️ Вес и тренировки", callback_data="chart_workout_weight")],
+                [InlineKeyboardButton("🔥 Калории (баланс)", callback_data="chart_calories")],
+                [InlineKeyboardButton("😴 Сон", callback_data="chart_sleep")],
+                [InlineKeyboardButton("◀️ В меню", callback_data="menu_main")],
+            ]),
+        )
 
     elif d == "chart_workout_weight":
+        await q.edit_message_text("📈 Загружаю график...")
         await _send_workout_weight_chart(update, context)
 
     elif d == "chart_calories":
+        await q.edit_message_text("📈 Загружаю график...")
         await _send_calories_chart(update, context)
 
     elif d == "chart_sleep":
+        await q.edit_message_text("📈 Загружаю график...")
         await _send_sleep_chart(update, context)
 
     elif d.startswith("menu_prog_"):
+        await q.edit_message_text("📈 Загружаю график...")
         days = int(d.split("_")[2])
         from bot.handlers.commands import progress
         context.args = [str(days)]
         await progress(update, context)
-        kb = _menu_back_kb()
-        await q.message.reply_text(f"Графики за {days} дн.", reply_markup=kb)
+        await q.message.delete()
 
     elif d == "menu_progress":
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📅 7 дней", callback_data="menu_prog_7")],
-            [InlineKeyboardButton("📅 14 дней", callback_data="menu_prog_14")],
-            [InlineKeyboardButton("📅 30 дней", callback_data="menu_prog_30")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="menu_main")],
-        ])
-        await q.edit_message_text("Графики за период:", reply_markup=kb)
+        await q.edit_message_text(
+            "📈 Графики за период:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📅 7 дней", callback_data="menu_prog_7")],
+                [InlineKeyboardButton("📅 14 дней", callback_data="menu_prog_14")],
+                [InlineKeyboardButton("📅 30 дней", callback_data="menu_prog_30")],
+                [InlineKeyboardButton("◀️ В меню", callback_data="menu_main")],
+            ]),
+        )
 
     elif d == "menu_suggest":
-        from bot.handlers.commands import suggest
-        await suggest(update, context)
-        kb = _menu_back_kb()
-        await q.message.reply_text("Рекомендации выше", reply_markup=kb)
+        async with async_session() as session:
+            user = await crud.get_user(session, q.from_user.id)
+            if not user:
+                await q.edit_message_text("Сначала /onboarding", reply_markup=_BACK())
+                return
+            programs = await crud.get_user_programs(session, user.id)
+            today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+            recent_logs = await crud.get_workout_logs_between(session, user.id, today_start - timedelta(days=14), today_start + timedelta(days=1))
+        if not programs:
+            await q.edit_message_text("🏋️ У тебя пока нет программ. Создай: /new_workout", reply_markup=_BACK())
+            return
+        muscle_volume, muscle_count = {}, {}
+        for log in recent_logs:
+            if log.exercise_sets:
+                for es in log.exercise_sets:
+                    vol = es.weight_kg * es.reps
+                    name_lower = es.exercise_name.lower()
+                    for program in programs:
+                        for ex in program.exercises:
+                            if ex.name.lower() in name_lower:
+                                for mg in (ex.muscle_groups or []):
+                                    muscle_volume[mg] = muscle_volume.get(mg, 0) + vol
+                                    muscle_count[mg] = muscle_count.get(mg, 0) + 1
+        all_muscles = set()
+        for p in programs:
+            for ex in p.exercises:
+                for mg in (ex.muscle_groups or []):
+                    all_muscles.add(mg)
+        muscle_avg = {}
+        for mg in all_muscles:
+            muscle_avg[mg] = muscle_volume.get(mg, 0) / muscle_count.get(mg, 1) if muscle_count.get(mg, 0) > 0 else 0
+        sorted_m = sorted(muscle_avg.items(), key=lambda x: x[1])
+        lines = ["🏋️ Рекомендации:\n"]
+        for mg, avg_vol in sorted_m[:5]:
+            lines.append(f"  {'⚠️' if avg_vol == 0 else '📉'} {mg} — {'не тренировался' if avg_vol == 0 else f'ср. объём {avg_vol:.0f}кг'}")
+        today_name = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][datetime.now(UTC).weekday()]
+        for p in programs:
+            if p.day_of_week.lower() == today_name.lower():
+                ex_names = ", ".join(e.name for e in p.exercises)
+                lines.append(f"\n📅 Сегодня ({today_name}): {p.name}\n   {ex_names}")
+                break
+        await q.edit_message_text("\n".join(lines), reply_markup=_BACK())
 
     elif d == "menu_week":
-        from bot.handlers.commands import week
-        await week(update, context)
-        kb = _menu_back_kb()
-        await q.message.reply_text("Неделя выше", reply_markup=kb)
+        async with async_session() as session:
+            user = await crud.get_user(session, q.from_user.id)
+            if not user:
+                await q.edit_message_text("Сначала /onboarding", reply_markup=_BACK())
+                return
+            week_start = datetime.now(UTC) - timedelta(days=7)
+            meals = await crud.get_meals_between(session, user.id, week_start, datetime.now(UTC))
+            workouts = await crud.get_workout_logs_between(session, user.id, week_start, datetime.now(UTC))
+            sleep_logs = await crud.get_sleep_between(session, user.id, week_start, datetime.now(UTC))
+            weight_history = await crud.get_weight_history(session, user.id, days=7)
+        if not meals:
+            await q.edit_message_text("📊 Нет данных за неделю. Начни с /log", reply_markup=_BACK())
+            return
+        days_with_meals = len(set(m.date.date() for m in meals))
+        days = max(days_with_meals, 1)
+        total_cal = sum(m.calories for m in meals)
+        total_protein = sum(m.protein for m in meals)
+        total_fat = sum(m.fat for m in meals)
+        total_carbs = sum(m.carbs for m in meals)
+        total_workout_vol = sum(w.total_volume or 0 for w in workouts)
+        total_workout_kcal = sum(w.calories_burned or 0 for w in workouts)
+        avg_sleep = sum(s.duration_hours for s in sleep_logs) / max(len(sleep_logs), 1) if sleep_logs else 0
+        weight_text = ""
+        if len(weight_history) >= 2:
+            first = weight_history[0].weight_kg
+            last = weight_history[-1].weight_kg
+            weight_text = f"\n⚖️ Вес: {first:.1f} → {last:.1f}кг ({last - first:+.1f}кг)"
+        bmr_val = bmr(user.gender, user.weight_kg, user.height_cm, user.age)
+        tdee_val = tdee(bmr_val, user.activity_level, weight_kg=user.weight_kg)
+        targets = daily_targets(tdee_val, user.weight_kg, user.goal)
+        lines = [
+            f"📊 Неделя ({days_with_meals} дн. с едой)\n",
+            f"🔥 Среднее: {total_cal / days:.0f} ккал/день",
+            f"🥩 Средний белок: {total_protein / days:.0f}г/день",
+            f"🧈 Средние жиры: {total_fat / days:.0f}г/день",
+            f"🍞 Средние углеводы: {total_carbs / days:.0f}г/день",
+            f"🏋️ Тренировок: {len(workouts)} | Объём: {total_workout_vol:.0f}кг",
+            f"🔥 Сожжено на тренировках: {total_workout_kcal:.0f}ккал",
+        ]
+        if avg_sleep > 0:
+            emoji = "😴" if avg_sleep >= 7 else "⚠️"
+            lines.append(f"{emoji} Средний сон: {avg_sleep:.1f}ч")
+        if weight_text:
+            lines.append(weight_text)
+        avg_deficit = targets["calories"] - (total_cal / 7)
+        lines.append(f"\n📉 Средний дефицит: {avg_deficit:+.0f} ккал/день")
+        await q.edit_message_text("\n".join(lines), reply_markup=_BACK())
 
     elif d == "menu_me":
-        from bot.handlers.profile import me
-        await me(update, context)
-        kb = _menu_back_kb()
-        await q.message.reply_text("Профиль выше", reply_markup=kb)
+        async with async_session() as session:
+            user = await crud.get_user(session, q.from_user.id)
+        if not user:
+            await q.edit_message_text("Сначала /onboarding", reply_markup=_BACK())
+            return
+        bmr_val = bmr(user.gender, user.weight_kg, user.height_cm, user.age)
+        tdee_val = tdee(bmr_val, user.activity_level, weight_kg=user.weight_kg)
+        targets = daily_targets(tdee_val, user.weight_kg, user.goal)
+        supp_text = "\n".join(f"  • {s['name']} {s['dose']} ({', '.join(s.get('times', []))})" for s in (user.supplements or [])) or "  нет"
+        GOAL_NAMES = {"cut": "Похудение", "bulk": "Набор", "recomp": "Рельеф", "maintain": "Поддержка"}
+        ACT_NAMES = {"sedentary": "Сидячий", "light": "Лёгкий", "moderate": "Средний", "high": "Высокий"}
+        text = (
+            f"👤 {user.name}\n\n📋 Профиль:\n"
+            f"  Пол: {'Муж' if user.gender == 'M' else 'Жен'} | {user.age} лет\n"
+            f"  Рост: {user.height_cm} см\n"
+            f"  Вес: {user.weight_kg} кг → цель {user.target_weight_kg} кг\n"
+            f"  Активность: {ACT_NAMES.get(user.activity_level, user.activity_level)}\n"
+            f"  Цель: {GOAL_NAMES.get(user.goal, user.goal)}\n\n"
+            f"📊 Расчёты:\n  BMR: {bmr_val:.0f} ккал\n  TDEE: {tdee_val:.0f} ккал\n\n"
+            f"🎯 Дневные нормы:\n  Калории: {targets['calories']} ккал\n"
+            f"  Белок: {targets['protein_g']}г | Жиры: {targets['fat_g']}г | Углеводы: {targets['carbs_g']}г\n\n"
+            f"💊 Добавки:\n{supp_text}\n\n"
+            f"⏰ Подъём: {user.sleep_schedule.get('preferred_wake', '—')} | Сон: {user.sleep_schedule.get('preferred_sleep', '—')}"
+        )
+        await q.edit_message_text(text, reply_markup=_BACK())
+
+    elif d == "menu_debug":
+        from bot.handlers.commands import get_activity_log
+        log = await get_activity_log(q.from_user.id)
+        await q.edit_message_text(log[:4096], reply_markup=_BACK())
 
     elif d == "menu_settings":
-        await q.edit_message_text("Настройки: /settings")
+        await _show_settings_menu(q, q.from_user.id)
+
+    elif d == "menu_settings_ai":
+        personality_names = {
+            "strict": "💪 Строгий", "friendly": "😊 Дружелюбный",
+            "motivating": "🔥 Мотивирующий", "sarcastic": "😂 Саркастичный",
+            "scientific": "🔬 Научный", "gentle": "🤗 Нежный",
+        }
+        await q.edit_message_text(
+            "🤖 Стиль ИИ-тренера:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(v, callback_data=f"menu_settings_ai_set_{k}")]
+                for k, v in personality_names.items()
+            ] + [[InlineKeyboardButton("◀️ Назад", callback_data="menu_settings")]]),
+        )
+
+    elif d.startswith("menu_settings_ai_set_"):
+        personality = d.split("_")[-1]
+        names = {"strict": "Строгий", "friendly": "Дружелюбный", "motivating": "Мотивирующий",
+                 "sarcastic": "Саркастичный", "scientific": "Научный", "gentle": "Нежный"}
+        async with async_session() as session:
+            user = await crud.get_user(session, q.from_user.id)
+            if user:
+                await crud.update_user(session, q.from_user.id, ai_personality=personality)
+        from bot.cache.redis_client import invalidate_context
+        await invalidate_context(q.from_user.id)
+        await q.edit_message_text(
+            f"🤖 Стиль: {names.get(personality, personality)} ✅",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="menu_settings")],
+                [InlineKeyboardButton("◀️ В меню", callback_data="menu_main")],
+            ]),
+        )
+
+    elif d == "menu_settings_reset":
+        from bot.db.base import async_session
+        from bot.db import crud
+        async with async_session() as session:
+            await crud.update_user(session, q.from_user.id, settings=None)
+        await q.edit_message_text(
+            "🔄 Настройки сброшены к дефолту.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="menu_settings")],
+                [InlineKeyboardButton("◀️ В меню", callback_data="menu_main")],
+            ]),
+        )
+
+    elif d == "menu_settings_notif":
+        from bot.db.base import async_session
+        from bot.db import crud
+        async with async_session() as session:
+            user = await crud.get_user(session, q.from_user.id)
+        notif = (user.settings or {}).get("notifications", {})
+        notif_items = [
+            ("supplements", "Добавки"), ("nutrition_deficit", "Недобор калорий"),
+            ("workout_reminder", "Тренировки"), ("sleep", "Сон"),
+            ("weekly_report", "Недельный отчёт"), ("water", "Вода"),
+            ("weigh_in", "Взвешивание"), ("steps", "Шаги"),
+        ]
+        rows = [
+            [InlineKeyboardButton(
+                f"{'✅' if notif.get(k, True) else '❌'} {label}",
+                callback_data=f"menu_settings_notif_toggle_{k}",
+            )]
+            for k, label in notif_items
+        ]
+        rows.append([InlineKeyboardButton("◀️ Назад", callback_data="menu_settings")])
+        await q.edit_message_text("🔔 Уведомления:", reply_markup=InlineKeyboardMarkup(rows))
+
+    elif d.startswith("menu_settings_notif_toggle_"):
+        key = d.replace("menu_settings_notif_toggle_", "")
+        from bot.db.base import async_session
+        from bot.db import crud
+        async with async_session() as session:
+            user = await crud.get_user(session, q.from_user.id)
+            if user:
+                settings = user.settings or {}
+                notif = settings.setdefault("notifications", {})
+                notif[key] = not notif.get(key, True)
+                await crud.update_user(session, q.from_user.id, settings=settings)
+        await _show_settings_menu(q, q.from_user.id)
 
     elif d == "menu_help":
-        kb = _menu_back_kb()
-        await q.message.reply_text(
-            "Команды:\n"
-            "/onboarding - настройка профиля\n"
-            "/today - сводка за сегодня\n"
-            "/weight [кг] - обновить вес\n"
-            "/sleep [отбой] [подъём] - записать сон\n"
-            "/steps [n] - записать шаги\n"
-            "/progress [дней] - графики\n"
-            "/week - неделя\n"
-            "/suggest - что тренировать\n"
-            "/me - мой профиль\n"
-            "/settings - настройки\n"
-            "/export - экспорт CSV\n\n"
+        await q.edit_message_text(
+            "❓ Команды:\n"
+            "/menu — главное меню\n"
+            "/onboarding — настройка профиля\n"
+            "/log — записать еду\n"
+            "/today — сводка за сегодня\n"
+            "/weight [кг] — обновить вес\n"
+            "/sleep [отбой] [подъём] — записать сон\n"
+            "/steps [n] — записать шаги\n"
+            "/progress [дней] — графики\n"
+            "/week — неделя\n"
+            "/suggest — что тренировать\n"
+            "/workout — тренировка\n"
+            "/me — мой профиль\n"
+            "/settings — настройки\n"
+            "/debug — отладка\n"
+            "/export — экспорт CSV\n\n"
             "Просто пиши текстом — понимаю без команд.",
-            reply_markup=kb,
+            reply_markup=_BACK(),
         )
 
     elif d == "menu_chat":
         await q.edit_message_text(
-            "Просто напиши сообщение — отвечу как тренер.\n\n"
+            "💬 Напиши сообщение — отвечу как тренер.\n\n"
             "Примеры:\n"
-            "- Как дела? — покажу статус\n"
-            "- Что тренировать? — подскажу\n"
-            "- Сколько белка осталось? — посчитаю",
+            "• Как дела? — покажу статус\n"
+            "• Что тренировать? — подскажу\n"
+            "• Сколько белка осталось? — посчитаю",
+            reply_markup=_BACK(),
         )
 
     elif d == "menu_admin":
@@ -324,42 +574,49 @@ async def _show_main_menu(q, user_id: int) -> None:
         user = await crud.get_user(session, user_id)
     is_admin = user and user.role == "admin"
 
-    rows = [
-        [InlineKeyboardButton("📊 Сегодня", callback_data="menu_today"),
-         InlineKeyboardButton("🍽 Записать еду", callback_data="menu_food")],
-        [InlineKeyboardButton("🏋️ Тренировка", callback_data="menu_workout"),
-         InlineKeyboardButton("⚖️ Вес", callback_data="menu_weight")],
-        [InlineKeyboardButton("📈 Графики", callback_data="menu_charts"),
-         InlineKeyboardButton("📅 Неделя", callback_data="menu_week")],
-        [InlineKeyboardButton("⚙️ Настройки", callback_data="menu_settings"),
-         InlineKeyboardButton("❓ Помощь", callback_data="menu_help")],
-        [InlineKeyboardButton("💬 Спросить тренера", callback_data="menu_chat")],
-    ]
-    if is_admin:
-        rows.append([InlineKeyboardButton("🔧 Админ-панель", callback_data="menu_admin")])
+    await q.edit_message_text("📌 Главное меню:", reply_markup=_build_main_menu(is_admin))
 
-    await q.edit_message_text("Меню:", reply_markup=InlineKeyboardMarkup(rows))
+
+async def _show_settings_menu(q, user_id: int) -> None:
+    async with async_session() as session:
+        user = await crud.get_user(session, user_id)
+    settings = user.settings if user else {}
+    personality = user.ai_personality if user else "friendly"
+    notif = settings.get("notifications", {})
+    notif_vals = notif.values()
+    notif_status = "все вкл" if notif_vals and all(notif_vals) else "частично" if any(notif_vals) else "все выкл"
+    await q.edit_message_text(
+        f"⚙️ Настройки\n\n"
+        f"🤖 Стиль ИИ: {personality}\n"
+        f"🔔 Уведомления: {notif_status}",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔔 Уведомления", callback_data="menu_settings_notif")],
+            [InlineKeyboardButton("🤖 Стиль ИИ", callback_data="menu_settings_ai")],
+            [InlineKeyboardButton("🔄 Сбросить всё", callback_data="menu_settings_reset")],
+            [InlineKeyboardButton("◀️ В меню", callback_data="menu_main")],
+        ]),
+    )
 
 
 def _menu_back_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Назад", callback_data="menu_main")]
+        [InlineKeyboardButton("◀️ В меню", callback_data="menu_main")]
     ])
 
+_BACK = _menu_back_kb
 
 # ─── Charts ────────────────────────────────────────────────
 
 async def _send_workout_weight_chart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     user_id = q.from_user.id
-    from datetime import datetime, UTC, timedelta
     from bot.db.base import async_session
     from bot.db import crud
 
     async with async_session() as session:
         user = await crud.get_user(session, user_id)
         if not user:
-            await q.message.reply_text("Сначала /onboarding")
+            await q.edit_message_text("Сначала /onboarding", reply_markup=_BACK())
             return
         weight_history = await crud.get_weight_history(session, user.id, days=30)
         workouts = await crud.get_workout_logs_between(
@@ -368,7 +625,7 @@ async def _send_workout_weight_chart(update: Update, context: ContextTypes.DEFAU
         )
 
     if not weight_history and not workouts:
-        await q.message.reply_text("Недостаточно данных для графика.")
+        await q.edit_message_text("Недостаточно данных для графика.", reply_markup=_BACK())
         return
 
     from bot.calculators.charts import workout_weight_chart
@@ -378,15 +635,17 @@ async def _send_workout_weight_chart(update: Update, context: ContextTypes.DEFAU
         [w.date for w in workouts],
         [w.total_volume or 0 for w in workouts],
     )
-    await q.message.reply_photo(photo=buf, caption="Вес и объём тренировок за 30 дней")
-    kb = _menu_back_kb()
-    await q.message.reply_text("Назад в меню:", reply_markup=kb)
+    await q.message.delete()
+    await context.bot.send_photo(
+        chat_id=q.message.chat_id, photo=buf,
+        caption="Вес и объём тренировок за 30 дней",
+        reply_markup=_BACK(),
+    )
 
 
 async def _send_calories_chart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     user_id = q.from_user.id
-    from datetime import datetime, UTC, timedelta
     from bot.db.base import async_session
     from bot.db import crud
     from bot.calculators.tdee import bmr, tdee
@@ -395,7 +654,7 @@ async def _send_calories_chart(update: Update, context: ContextTypes.DEFAULT_TYP
     async with async_session() as session:
         user = await crud.get_user(session, user_id)
         if not user:
-            await q.message.reply_text("Сначала /onboarding")
+            await q.edit_message_text("Сначала /onboarding", reply_markup=_BACK())
             return
         meals = await crud.get_meals_between(
             session, user.id,
@@ -403,7 +662,7 @@ async def _send_calories_chart(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
     if not meals:
-        await q.message.reply_text("Недостаточно данных для графика.")
+        await q.edit_message_text("Недостаточно данных для графика.", reply_markup=_BACK())
         return
 
     bmr_val = bmr(user.gender, user.weight_kg, user.height_cm, user.age)
@@ -421,22 +680,24 @@ async def _send_calories_chart(update: Update, context: ContextTypes.DEFAULT_TYP
 
     from bot.calculators.charts import deficit_chart
     buf = deficit_chart(days_sorted, deficits)
-    await q.message.reply_photo(photo=buf, caption="Баланс калорий за 14 дней")
-    kb = _menu_back_kb()
-    await q.message.reply_text("Назад в меню:", reply_markup=kb)
+    await q.message.delete()
+    await context.bot.send_photo(
+        chat_id=q.message.chat_id, photo=buf,
+        caption="Баланс калорий за 14 дней",
+        reply_markup=_BACK(),
+    )
 
 
 async def _send_sleep_chart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     user_id = q.from_user.id
-    from datetime import datetime, UTC, timedelta
     from bot.db.base import async_session
     from bot.db import crud
 
     async with async_session() as session:
         user = await crud.get_user(session, user_id)
         if not user:
-            await q.message.reply_text("Сначала /onboarding")
+            await q.edit_message_text("Сначала /onboarding", reply_markup=_BACK())
             return
         sleep_logs = await crud.get_sleep_between(
             session, user.id,
@@ -444,7 +705,7 @@ async def _send_sleep_chart(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
 
     if not sleep_logs:
-        await q.message.reply_text("Недостаточно данных для графика.")
+        await q.edit_message_text("Недостаточно данных для графика.", reply_markup=_BACK())
         return
 
     from bot.calculators.charts import sleep_chart
@@ -452,9 +713,12 @@ async def _send_sleep_chart(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         [s.date for s in sleep_logs],
         [s.duration_hours for s in sleep_logs],
     )
-    await q.message.reply_photo(photo=buf, caption="Динамика сна за 14 дней")
-    kb = _menu_back_kb()
-    await q.message.reply_text("Назад в меню:", reply_markup=kb)
+    await q.message.delete()
+    await context.bot.send_photo(
+        chat_id=q.message.chat_id, photo=buf,
+        caption="Динамика сна за 14 дней",
+        reply_markup=_BACK(),
+    )
 
 
 # ─── Help ──────────────────────────────────────────────────
@@ -466,12 +730,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/onboarding — настройка профиля\n"
         "/me — мой профиль\n"
         "/today — сводка за сегодня\n"
+        "/log — записать еду\n"
         "/weight [кг] — обновить вес\n"
         "/sleep [отбой] [подъём] — записать сон\n"
         "/steps [n] — записать шаги\n"
         "/progress [дней] — графики\n"
         "/week — неделя\n"
         "/suggest — что тренировать\n"
+        "/workout — тренировка\n"
         "/settings — настройки\n"
         "/export — экспорт CSV\n\n"
         "Просто пиши текстом — понимаю без команд."
@@ -481,14 +747,34 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 # ─── Photo handler ─────────────────────────────────────────
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    photo = update.message.photo[-1]
-    file = await photo.get_file()
-    photo_bytes = await file.download_as_bytearray()
+    user_id = update.effective_user.id
+    logger.info(f"[PHOTO] user={user_id} — received photo")
+    try:
+        photo = update.message.photo[-1]
+        file = await photo.get_file()
+        photo_bytes = await file.download_as_bytearray()
+        logger.info(f"[PHOTO] user={user_id} — downloaded {len(photo_bytes)} bytes, size={photo.width}x{photo.height}")
+    except Exception as e:
+        logger.error(f"[PHOTO] user={user_id} — download failed: {type(e).__name__}: {e}")
+        await update.message.reply_text("Ошибка загрузки фото.")
+        return
 
     await update.message.reply_text("Распознаю...")
 
-    from bot.ai.vision import analyze_photo
-    result = await analyze_photo(bytes(photo_bytes))
+    try:
+        from bot.ai.vision import analyze_photo
+    except Exception as e:
+        logger.error(f"[PHOTO] user={user_id} — import vision failed: {type(e).__name__}: {e}")
+        await update.message.reply_text("Ошибка импорта модуля распознавания.")
+        return
+
+    try:
+        result = await analyze_photo(bytes(photo_bytes))
+        logger.info(f"[PHOTO] user={user_id} — analyze_photo returned: {result}")
+    except Exception as e:
+        logger.error(f"[PHOTO] user={user_id} — analyze_photo crashed: {type(e).__name__}: {e}", exc_info=True)
+        await update.message.reply_text("Ошибка распознавания. Попробуй текстом: /log 200г гречки")
+        return
 
     if not result:
         await update.message.reply_text(
@@ -500,7 +786,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     from bot.db import crud
 
     async with async_session() as session:
-        user = await crud.get_user(session, update.effective_user.id)
+        user = await crud.get_user(session, user_id)
         if not user:
             await update.message.reply_text("Сначала /onboarding")
             return
@@ -517,22 +803,22 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
 
     from bot.cache.redis_client import invalidate_context
-    await invalidate_context(update.effective_user.id)
+    await invalidate_context(user_id)
 
     await update_today_state(
-        update.effective_user.id,
+        user_id,
         calories_in=result["calories"],
         protein=result["protein"],
         fat=result["fat"],
         carbs=result["carbs"],
     )
 
-    today_state = await get_today_state(update.effective_user.id)
+    today_state = await get_today_state(user_id)
 
     from bot.handlers.food import format_progress_bar, get_targets_for_user
 
     async with async_session() as session:
-        user = await crud.get_user(session, update.effective_user.id)
+        user = await crud.get_user(session, user_id)
     targets = await get_targets_for_user(user) if user else {"calories": 2000, "protein_g": 150}
 
     cal_pct = (today_state["calories_in"] / targets["calories"] * 100) if targets["calories"] > 0 else 0
@@ -567,8 +853,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await cancel_command(update, context)
         return
     if intent == "weight_query":
-        from bot.db.base import async_session
-        from bot.db import crud
         async with async_session() as session:
             user = await crud.get_user(session, user_id)
         if user:
@@ -580,10 +864,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     from bot.ai.analyzer import analyze_message
-    from bot.calculators.tdee import bmr as _bmr, tdee as _tdee
-    from bot.calculators.nutrition import daily_targets
-    from bot.db.base import async_session
-    from bot.db import crud
 
     async with async_session() as session:
         user = await crud.get_user(session, user_id)
@@ -591,8 +871,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await chat.send_message("Сначала /onboarding")
             return
 
-    bmr_val = _bmr(user.gender, user.weight_kg, user.height_cm, user.age)
-    tdee_val = _tdee(bmr_val, user.activity_level, weight_kg=user.weight_kg)
+    bmr_val = bmr(user.gender, user.weight_kg, user.height_cm, user.age)
+    tdee_val = tdee(bmr_val, user.activity_level, weight_kg=user.weight_kg)
     targets = daily_targets(tdee_val, user.weight_kg, user.goal)
     state = await get_today_state(user_id)
 
@@ -622,7 +902,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                             source="ai",
                         )
                         await invalidate_context(user_id)
-                        from bot.cache.redis_client import update_today_state
                         await update_today_state(
                             user_id,
                             calories_in=food_data["calories"] * factor,
@@ -640,7 +919,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 return
 
         elif analysis["intent"] == "steps":
-            from bot.cache.redis_client import update_today_state
             kcal = action["steps"] * 0.04 * (user.weight_kg / 70)
             await update_today_state(user_id, steps=action["steps"], calories_out=kcal)
             await invalidate_context(user_id)
@@ -692,6 +970,8 @@ async def _send_ai_reply(chat, user_id: int, text: str, bot) -> None:
     if is_rate_limited(user_id):
         await chat.send_message("Слишком много сообщений подряд, подожди немного.")
         return
+
+    await chat.send_chat_action("typing")
 
     from bot.ai.trainer import chat_with_trainer
     t_start = time.monotonic()
@@ -746,19 +1026,45 @@ async def post_init(app):
 
     from telegram import BotCommand
     await app.bot.set_my_commands([
-        BotCommand("today", "Прогресс за сегодня"),
-        BotCommand("workout", "Записать тренировку"),
-        BotCommand("weight", "Обновить вес"),
-        BotCommand("sleep", "Записать сон"),
-        BotCommand("steps", "Записать шаги"),
-        BotCommand("week", "Недельный отчёт"),
-        BotCommand("help", "Помощь"),
+        BotCommand("menu", "📌 Открыть главное меню"),
+        BotCommand("today", "📊 Сводка за сегодня"),
+        BotCommand("log", "🍽 Записать еду"),
+        BotCommand("steps", "👟 Записать шаги"),
+        BotCommand("workout", "🏋️ Записать тренировку"),
+        BotCommand("weight", "⚖️ Обновить вес"),
+        BotCommand("sleep", "😴 Записать сон"),
+        BotCommand("week", "📅 Недельная сводка"),
+        BotCommand("progress", "📈 Графики прогресса"),
+        BotCommand("suggest", "💡 Что тренировать"),
+        BotCommand("me", "🧍 Мой профиль"),
+        BotCommand("settings", "⚙️ Настройки"),
+        BotCommand("help", "❓ Помощь"),
     ])
 
     from bot.scheduler.reminders import reset_all_today_states, restore_all_schedulers
     async def midnight_reset():
+        from bot.db.base import async_session
+        from bot.db import crud
+        from datetime import datetime, UTC, timedelta, date
+        today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        yesterday = today_start - timedelta(days=1)
+        async with async_session() as session:
+            users = await crud.get_all_users(session)
+        for user in users:
+            try:
+                state = await get_today_state(user.tg_id)
+                if any(v for v in state.values()):
+                    async with async_session() as session:
+                        await crud.save_daily_summary(session, user.id, today_start, state)
+                else:
+                    state = await get_today_state(user.tg_id, day=yesterday.date())
+                    if any(v for v in state.values()):
+                        async with async_session() as session:
+                            await crud.save_daily_summary(session, user.id, today_start, state)
+            except Exception as e:
+                logger.warning(f"Failed to save daily summary for {user.tg_id}: {e}")
         await reset_all_today_states(app.bot)
-    scheduler.add_job(midnight_reset, CronTrigger(hour=0, minute=5), id="midnight_reset", replace_existing=True)
+    scheduler.add_job(midnight_reset, CronTrigger(hour=0, minute=0), id="midnight_reset", replace_existing=True)
 
     await restore_all_schedulers(app.bot)
 
@@ -790,6 +1096,8 @@ def main() -> None:
     app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CommandHandler("admin", admin_entry))
 
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+
     app.add_handler(get_onboarding_handler())
     app.add_handler(get_me_handler())
 
@@ -808,13 +1116,13 @@ def main() -> None:
     app.add_handler(get_settings_handler())
     app.add_handler(get_progress_handler())
     app.add_handler(get_suggest_handler())
+    app.add_handler(get_debug_handler())
 
     app.add_handler(CallbackQueryHandler(onb_restart_callback, pattern="^onb_"))
     app.add_handler(CallbackQueryHandler(admin_callback, pattern="^adm_"))
     app.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_|^chart_"))
     app.add_handler(CallbackQueryHandler(quick_button_callback, pattern="^qck_"))
 
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     logger.info("Bot started")

@@ -26,6 +26,9 @@ DEFAULT_SETTINGS = {
         "workout_reminder": True,
         "sleep": True,
         "weekly_report": True,
+        "water": True,
+        "weigh_in": True,
+        "steps": True,
     },
     "ai": {
         "personality": "strict",
@@ -56,7 +59,7 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with async_session() as session:
         user = await crud.get_user(session, update.effective_user.id)
         if not user:
-            await update.message.reply_text("Сначала /onboarding")
+            await update.effective_message.reply_text("Сначала /onboarding")
             return
         today_workout = await crud.get_today_workout(session, user.id)
         last_sleep = await crud.get_last_sleep(session, user.id)
@@ -105,7 +108,7 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ],
     ])
 
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         f"📅 {day_name}, {now.strftime('%d.%m')}\n\n"
         f"🔥 {state['calories_in']:.0f}/{targets['calories']:.0f} ккал {format_progress_bar(state['calories_in'], targets['calories'])} {cal_pct:.0f}%\n"
         f"🥩 {state['protein']:.0f}/{targets['protein_g']:.0f}г {format_progress_bar(state['protein'], targets['protein_g'])} {prot_pct:.0f}%\n"
@@ -213,7 +216,7 @@ async def week(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with async_session() as session:
         user = await crud.get_user(session, update.effective_user.id)
         if not user:
-            await update.message.reply_text("Сначала /onboarding")
+            await update.effective_message.reply_text("Сначала /onboarding")
             return
 
         now = datetime.now(UTC)
@@ -225,7 +228,7 @@ async def week(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         weight_history = await crud.get_weight_history(session, user.id, days=7)
 
     if not meals:
-        await update.message.reply_text("📊 Нет данных за неделю. Начни с /log")
+        await update.effective_message.reply_text("📊 Нет данных за неделю. Начни с /log")
         return
 
     days_with_meals = len(set(m.date.date() for m in meals))
@@ -272,7 +275,34 @@ async def week(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     avg_deficit = targets["calories"] - (total_cal / 7)
     lines.append(f"\n📉 Средний дефицит: {avg_deficit:+.0f} ккал/день")
 
-    await update.message.reply_text("\n".join(lines))
+    await update.effective_message.reply_text("\n".join(lines))
+
+
+# ─── Settings helpers ──────────────────────────────────────
+
+SETTINGS_NOTIF_ITEMS = [
+    ("supplements", "Добавки"),
+    ("nutrition_deficit", "Недобор калорий"),
+    ("workout_reminder", "Тренировки"),
+    ("sleep", "Сон"),
+    ("weekly_report", "Недельный отчёт"),
+    ("water", "Вода"),
+    ("weigh_in", "Взвешивание"),
+    ("steps", "Шаги"),
+]
+
+
+def _build_notif_keyboard(notif: dict) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(
+            f"{'✅' if notif.get(k, True) else '❌'} {label}",
+            callback_data=f"toggle_{k}"
+        )]
+        for k, label in SETTINGS_NOTIF_ITEMS
+    ]
+    rows.append([InlineKeyboardButton("◀️ Назад в меню", callback_data="back_menu")])
+    rows.append([InlineKeyboardButton("🚪 Выйти", callback_data="back")])
+    return InlineKeyboardMarkup(rows)
 
 
 # ─── /settings ──────────────────────────────────────────────
@@ -288,7 +318,7 @@ async def settings_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return ConversationHandler.END
 
     settings = user.settings or DEFAULT_SETTINGS
-    personality = settings.get("ai", {}).get("personality", "strict")
+    personality = user.ai_personality or "friendly"
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔔 Уведомления", callback_data="notif")],
@@ -296,7 +326,8 @@ async def settings_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         [InlineKeyboardButton("🔄 Сбросить всё", callback_data="reset")],
     ])
 
-    notif_status = "вкл" if all(settings.get("notifications", {}).values()) else "частично"
+    notif_vals = settings.get("notifications", {}).values()
+    notif_status = "все вкл" if notif_vals and all(notif_vals) else "частично" if any(notif_vals) else "все выкл"
     await update.message.reply_text(
         f"⚙️ Настройки\n\n"
         f"🤖 Стиль ИИ: {personality}\n"
@@ -316,21 +347,10 @@ async def settings_menu_callback(update: Update, context: ContextTypes.DEFAULT_T
         settings = user.settings if user else DEFAULT_SETTINGS
         notif = settings.get("notifications", DEFAULT_SETTINGS["notifications"])
 
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                f"{'✅' if notif.get(k, True) else '❌'} {label}",
-                callback_data=f"toggle_{k}"
-            )]
-            for k, label in [
-                ("supplements", "Добавки"),
-                ("nutrition_deficit", "Недобор калорий"),
-                ("workout_reminder", "Тренировки"),
-                ("sleep", "Сон"),
-                ("weekly_report", "Недельный отчёт"),
-            ]
-        ])
-        keyboard.inline_keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back")])
-        await query.edit_message_text("🔔 Уведомления:", reply_markup=keyboard)
+        await query.edit_message_text(
+            "🔔 Уведомления:",
+            reply_markup=_build_notif_keyboard(notif),
+        )
         return SETTINGS_NOTIFICATIONS
 
     elif query.data == "ai_style":
@@ -360,6 +380,27 @@ async def settings_toggle_notif(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text("⚙️ Настройки обновлены.")
         return ConversationHandler.END
 
+    if query.data == "back_menu":
+        async with async_session() as session:
+            user = await crud.get_user(session, update.effective_user.id)
+        personality = user.ai_personality if user else "friendly"
+        settings = user.settings if user else DEFAULT_SETTINGS
+        notif_vals = settings.get("notifications", {}).values()
+        notif_status = "все вкл" if notif_vals and all(notif_vals) else "частично"
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔔 Уведомления", callback_data="notif")],
+            [InlineKeyboardButton("🤖 Стиль ИИ", callback_data="ai_style")],
+            [InlineKeyboardButton("🔄 Сбросить всё", callback_data="reset")],
+        ])
+        await query.edit_message_text(
+            f"⚙️ Настройки\n\n"
+            f"🤖 Стиль ИИ: {personality}\n"
+            f"🔔 Уведомления: {notif_status}",
+            reply_markup=keyboard,
+        )
+        return SETTINGS_MENU
+
     key = query.data.replace("toggle_", "")
     notif = {}
     async with async_session() as session:
@@ -370,7 +411,12 @@ async def settings_toggle_notif(update: Update, context: ContextTypes.DEFAULT_TY
             notif[key] = not notif.get(key, True)
             await crud.update_user(session, update.effective_user.id, settings=settings)
 
-    await query.answer(f"{'Включено' if notif.get(key) else 'Выключено'}", show_alert=True)
+    await query.answer(f"{'✅ Включено' if notif.get(key) else '❌ Выключено'}", show_alert=True)
+
+    await query.edit_message_text(
+        "🔔 Уведомления:",
+        reply_markup=_build_notif_keyboard(notif),
+    )
     return SETTINGS_NOTIFICATIONS
 
 
@@ -379,18 +425,34 @@ async def settings_set_ai_style(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
 
     if query.data == "back":
-        await query.edit_message_text("⚙️ Настройки обновлены.")
-        return ConversationHandler.END
+        async with async_session() as session:
+            user = await crud.get_user(session, update.effective_user.id)
+        personality = user.ai_personality if user else "friendly"
+        settings = user.settings if user else DEFAULT_SETTINGS
+        notif_vals = settings.get("notifications", {}).values()
+        notif_status = "все вкл" if notif_vals and all(notif_vals) else "частично"
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔔 Уведомления", callback_data="notif")],
+            [InlineKeyboardButton("🤖 Стиль ИИ", callback_data="ai_style")],
+            [InlineKeyboardButton("🔄 Сбросить всё", callback_data="reset")],
+        ])
+        await query.edit_message_text(
+            f"⚙️ Настройки\n\n"
+            f"🤖 Стиль ИИ: {personality}\n"
+            f"🔔 Уведомления: {notif_status}",
+            reply_markup=keyboard,
+        )
+        return SETTINGS_MENU
 
     personality = query.data.replace("set_", "")
     async with async_session() as session:
         user = await crud.get_user(session, update.effective_user.id)
         if user:
-            settings = user.settings or DEFAULT_SETTINGS
-            settings.setdefault("ai", {})["personality"] = personality
-            await crud.update_user(session, update.effective_user.id, settings=settings)
+            await crud.update_user(session, update.effective_user.id, ai_personality=personality)
 
-    names = {"strict": "Строгий", "friendly": "Дружелюбный", "motivating": "Мотивирующий"}
+    names = {"strict": "Строгий", "friendly": "Дружелюбный", "motivating": "Мотивирующий",
+             "sarcastic": "Саркастичный", "scientific": "Научный", "gentle": "Нежный"}
     await query.edit_message_text(f"🤖 Стиль: {names.get(personality, personality)}")
     return ConversationHandler.END
 
@@ -518,7 +580,7 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with async_session() as session:
         user = await crud.get_user(session, update.effective_user.id)
         if not user:
-            await update.message.reply_text("Сначала /onboarding")
+            await update.effective_message.reply_text("Сначала /onboarding")
             return
 
         days = int(context.args[0]) if context.args else 30
@@ -532,7 +594,7 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
     if not weight_history:
-        await update.message.reply_text("📊 Нет данных о весе. Запиши: /weight 85.5")
+        await update.effective_message.reply_text("📊 Нет данных о весе. Запиши: /weight 85.5")
         return
 
     from bot.calculators.charts import weight_chart, sleep_chart
@@ -540,7 +602,7 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     w_dates = [w.date for w in weight_history]
     w_weights = [w.weight_kg for w in weight_history]
     buf = weight_chart(w_dates, w_weights, target=user.target_weight_kg)
-    await update.message.reply_document(
+    await update.effective_message.reply_document(
         document=buf, filename=f"weight_{days}d.png",
         caption=f"⚖️ Вес за {days} дн. (цель: {user.target_weight_kg}кг)",
     )
@@ -549,7 +611,7 @@ async def progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         s_dates = [s.date for s in sleep_logs]
         s_durations = [s.duration_hours for s in sleep_logs]
         buf = sleep_chart(s_dates, s_durations, target_hours=8.0)
-        await update.message.reply_document(
+        await update.effective_message.reply_document(
             document=buf, filename=f"sleep_{days}d.png",
             caption=f"😴 Сон за {days} дн.",
         )
@@ -565,7 +627,7 @@ async def suggest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with async_session() as session:
         user = await crud.get_user(session, update.effective_user.id)
         if not user:
-            await update.message.reply_text("Сначала /onboarding")
+            await update.effective_message.reply_text("Сначала /onboarding")
             return
 
         programs = await crud.get_user_programs(session, user.id)
@@ -577,7 +639,7 @@ async def suggest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
     if not programs:
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "🏋️ У тебя пока нет программ. Создай: /new_workout"
         )
         return
@@ -603,7 +665,7 @@ async def suggest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 all_muscles.add(mg)
 
     if not all_muscles:
-        await update.message.reply_text("Не удалось определить группы мышц из твоих программ.")
+        await update.effective_message.reply_text("Не удалось определить группы мышц из твоих программ.")
         return
 
     muscle_avg = {}
@@ -634,8 +696,127 @@ async def suggest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         lines.append(f"\n📅 Сегодня ({today_name}): {today_program.name}")
         lines.append(f"   Упражнения: {ex_names}")
 
-    await update.message.reply_text("\n".join(lines))
+    await update.effective_message.reply_text("\n".join(lines))
 
 
 def get_suggest_handler() -> CommandHandler:
     return CommandHandler("suggest", suggest)
+
+
+# ─── Activity Log ─────────────────────────────────────────────
+
+async def get_activity_log(user_id: int) -> str:
+    from bot.cache.redis_client import get_chat_history
+    lines = [f"📋 Лог активности user={user_id}\n"]
+
+    async with async_session() as session:
+        user = await crud.get_user(session, user_id)
+        if not user:
+            return "Сначала /onboarding"
+        today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
+        meals = await crud.get_meals_between(session, user.id, today_start, today_end)
+        workouts = await crud.get_workout_logs_between(session, user.id, today_start, today_end)
+
+    if meals:
+        lines.append(f"\n🍽 Приёмы пищи ({len(meals)}):")
+        for m in meals:
+            t = m.date.strftime("%H:%M")
+            lines.append(f"  [{t}] +{m.food_name} {m.weight_g:.0f}г — {m.calories:.0f}ккал, "
+                         f"белок {m.protein:.1f}г, жиры {m.fat:.1f}г, углеводы {m.carbs:.1f}г"
+                         f"{' (ai)' if m.source == 'ai' else ' (usda)'}")
+
+    if workouts:
+        lines.append(f"\n🏋️ Тренировки ({len(workouts)}):")
+        for w in workouts:
+            t = w.date.strftime("%H:%M")
+            lines.append(f"  [{t}] {w.workout_name} — объём {w.total_volume:.0f}кг, "
+                         f"сожжено {w.calories_burned:.0f}ккал, {w.duration_minutes}мин")
+
+    try:
+        history = await get_chat_history(user_id, limit=10)
+        if history:
+            lines.append(f"\n💬 Переписка с ИИ ({len(history)} сообщений):")
+            for msg in reversed(history):
+                role = "👤 Пользователь" if msg["role"] == "user" else "🤖 ИИ"
+                content = msg["content"][:200]
+                lines.append(f"  {role}: {content}")
+    except Exception as e:
+        lines.append(f"\n⚠️ Ошибка истории: {e}")
+
+    lines.append(f"\n⚡ Текущее состояние за сегодня:")
+    state = await get_today_state(user_id)
+    for k, v in state.items():
+        lines.append(f"  {k}: {v}")
+
+    return "\n".join(lines)
+
+
+# ─── /debug — просмотр данных для ИИ ──────────────────────────
+
+async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+
+    log = await get_activity_log(user_id)
+    await update.effective_message.reply_text(log[:3500])
+
+    lines = [f"\n🛠 Debug user={user_id}\n"]
+
+    async with async_session() as session:
+        user = await crud.get_user(session, user_id)
+        if not user:
+            await update.effective_message.reply_text("Сначала /onboarding")
+            return
+
+        lines.append("👤 Профиль:")
+        lines.append(f"  Пол: {user.gender}, Возраст: {user.age}, "
+                      f"Рост: {user.height_cm}см, Вес: {user.weight_kg}кг")
+        lines.append(f"  Цель: {user.goal}, Активность: {user.activity_level}")
+        lines.append(f"  Целевой вес: {user.target_weight_kg}кг")
+        lines.append(f"  Роль: {user.role}")
+        lines.append(f"  AI стиль: {user.ai_personality}")
+
+        last_meals = await crud.get_last_meal_logs(session, user.id, limit=5)
+        if last_meals:
+            lines.append(f"\n🍽 Последние приёмы пищи ({len(last_meals)}):")
+            for m in last_meals:
+                lines.append(f"  {m.food_name} {m.weight_g:.0f}г — {m.calories:.0f}ккал")
+
+    settings = user.settings or DEFAULT_SETTINGS
+    lines.append(f"\n⚙️ Настройки:")
+    lines.append(f"  AI: {settings.get('ai', {})}")
+    notif = settings.get("notifications", {})
+    for k, v in notif.items():
+        lines.append(f"  🔔 {k}: {'✅' if v else '❌'}")
+
+    state = await get_today_state(user_id)
+    lines.append(f"\n📊 Состояние за сегодня:")
+    for k, v in state.items():
+        lines.append(f"  {k}: {v}")
+
+    try:
+        from bot.ai.trainer import build_context
+        ctx = await build_context(user_id)
+        lines.append(f"\n🧠 Контекст для ИИ (build_context):")
+        ctx_str = json.dumps(ctx, ensure_ascii=False, indent=2, default=str)
+        lines.append(f"  {ctx_str[:1500]}")
+    except Exception as e:
+        lines.append(f"\n❌ Ошибка build_context: {e}")
+
+    try:
+        from bot.scheduler.reminders import scheduler as sched
+        jobs = sched.get_jobs()
+        user_jobs = [j for j in jobs if str(user_id) in j.id]
+        lines.append(f"\n⏰ Запланированные уведомления ({len(user_jobs)}):")
+        for j in user_jobs:
+            lines.append(f"  {j.id}")
+    except Exception as e:
+        lines.append(f"\n❌ Ошибка scheduler: {e}")
+
+    text = "\n".join(lines)
+    for i in range(0, len(text), 3500):
+        await update.effective_message.reply_text(text[i:i + 3500])
+
+
+def get_debug_handler() -> CommandHandler:
+    return CommandHandler("debug", debug_command)

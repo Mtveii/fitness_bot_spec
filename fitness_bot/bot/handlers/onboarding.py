@@ -25,6 +25,9 @@ DEFAULT_SETTINGS = {
         "workout_reminder": True,
         "sleep": True,
         "weekly_report": True,
+        "water": True,
+        "weigh_in": True,
+        "steps": True,
     },
     "ai": {
         "personality": "strict",
@@ -377,7 +380,8 @@ async def get_supplements(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if job.id.startswith(prefix):
             job.remove()
 
-    setup_scheduler(context.bot, user_id, d)
+    d_with_settings = {**d, "settings": DEFAULT_SETTINGS}
+    setup_scheduler(context.bot, user_id, d_with_settings)
     if not scheduler.running:
         scheduler.start()
 
