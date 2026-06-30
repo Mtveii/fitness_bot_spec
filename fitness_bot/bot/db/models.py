@@ -26,7 +26,7 @@ class User(Base):
     sleep_schedule = Column(JSON, nullable=True)
     ai_personality = Column(String(20), nullable=True)
     settings = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.UTC).replace(tzinfo=None))
     wake_time = Column(String(5), default="07:00")
     workout_time = Column(String(5), default="18:00")
 
@@ -36,12 +36,12 @@ class User(Base):
     food_notes = Column(Text, default="")
     role = Column(String(10), default="user")
 
-    meal_logs = relationship("MealLog", back_populates="user", lazy="selectin")
-    workout_logs = relationship("WorkoutLog", back_populates="user", lazy="selectin")
-    sleep_logs = relationship("SleepLog", back_populates="user", lazy="selectin")
-    weight_history = relationship("WeightHistory", back_populates="user", lazy="selectin")
-    supplement_logs = relationship("SupplementLog", back_populates="user", lazy="selectin")
-    time_observations = relationship("TimeObservation", back_populates="user", lazy="selectin")
+    meal_logs = relationship("MealLog", back_populates="user", lazy="noload")
+    workout_logs = relationship("WorkoutLog", back_populates="user", lazy="noload")
+    sleep_logs = relationship("SleepLog", back_populates="user", lazy="noload")
+    weight_history = relationship("WeightHistory", back_populates="user", lazy="noload")
+    supplement_logs = relationship("SupplementLog", back_populates="user", lazy="noload")
+    time_observations = relationship("TimeObservation", back_populates="user", lazy="noload")
     memory_profile = relationship("UserMemoryProfile", uselist=False, back_populates="user", lazy="selectin")
 
 
@@ -56,7 +56,7 @@ class FoodItem(Base):
     fat_per_100g = Column(Float, nullable=True)
     carbs_per_100g = Column(Float, nullable=True)
     category = Column(String(50), nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.UTC).replace(tzinfo=None))
 
 
 class MealLog(Base):
@@ -131,7 +131,7 @@ class ExerciseSet(Base):
     reps = Column(Integer, nullable=False)
     rpe = Column(Float, nullable=True)
 
-    workout = relationship("WorkoutLog", back_populates="exercise_sets")
+    workout_log = relationship("WorkoutLog", back_populates="exercise_sets")
 
 
 class SleepLog(Base):
@@ -195,7 +195,7 @@ class AIUsageLog(Base):
     provider = Column(String(20), nullable=False)
     tokens_in = Column(Integer, nullable=True)
     tokens_out = Column(Integer, nullable=True)
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.datetime.now(datetime.UTC).replace(tzinfo=None))
 
 
 class ObservationType(str, enum.Enum):

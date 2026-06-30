@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from bot.ai.clients import ask_ai_race
-from bot.ai.prompts import ONBOARDING_PROMPT
+from bot.ai.prompts import ONBOARDING_PROMPT, ONBOARDING_COMPLETION_PROMPT
 from bot.tools.definitions import get_tool_schema, ONBOARDING_TOOL_NAMES
 from bot.tools.registry import execute_tool
 from bot.db.models import User
@@ -45,30 +45,31 @@ async def handle_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif parsed.get("status") == "partial":
                 profile_data = context.user_data.get("profile_data", {})
                 missing = parsed.get("missing", [])
-                missing_names = {
-                    "gender": "пол",
-                    "age": "возраст",
-                    "height_cm": "рост",
-                    "weight_kg": "вес",
-                    "activity_level": "уровень активности",
-                    "goal": "цель",
-                }
-                next_field = missing[0] if missing else None
-                field_ru = missing_names.get(next_field, next_field)
-                if profile_data:
-                    known = ", ".join(f"{k}: {v}" for k, v in profile_data.items())
-                    await update.message.reply_text(
-                        f"Я уже понял: {known}.\n\nРасскажи ещё о {field_ru}?"
-                    )
-                else:
-                    await update.message.reply_text(
-                        f"Расскажи о своём {field_ru} — это нужно для расчётов."
-                    )
+                followup = await ask_ai_race(
+                    [{"role": "system", "content": ONBOARDING_PROMPT},
+                     {"role": "user", "content":
+                         f"Пользователь предоставил: {json.dumps(profile_data, ensure_ascii=False)}.\n"
+                         f"Не хватает: {', '.join(missing)}.\n"
+                         f"Задай один конкретный содержательный вопрос про {missing[0]}, "
+                         f"объяснив ЗАЧЕМ это нужно и в контексте уже известного. "
+                         f"Не используй шаблонные фразы."}],
+                    tools=None, temperature=0.8, max_tokens=256
+                )
+                question = followup.get("content", "")
+                if not question:
+                    question = f"Расскажи о своём {missing[0]} — это поможет точнее рассчитать твои нормы."
+                await update.message.reply_text(question)
                 return
 
     content = response.get("content", "")
     if content:
         await update.message.reply_text(content)
+    else:
+        await update.message.reply_text(
+            "Давай сначала закончим настройку профиля, чтобы я мог всё правильно "
+            "считать. Расскажи о себе: сколько тебе лет, какой у тебя рост, вес, "
+            "уровень активности и цель?"
+        )
 
 
 async def _finish_onboarding(update, context, tg_id, profile):
@@ -97,7 +98,7 @@ async def _finish_onboarding(update, context, tg_id, profile):
             goal=goal,
             allergies=profile.get("allergies"),
             favorite_foods=profile.get("favorite_foods"),
-            created_at=datetime.datetime.utcnow(),
+            created_at=datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
         )
         session.add(user)
         await session.flush()
@@ -108,19 +109,23 @@ async def _finish_onboarding(update, context, tg_id, profile):
     context.user_data["onboarding"] = False
     context.user_data.pop("profile_data", None)
 
-    await update.message.reply_text(
-        f"Отлично! Вот что я понял о тебе:\n\n"
-        f"• Пол: {'мужской' if gender == 'M' else 'женский'}\n"
-        f"• Возраст: {age}\n"
-        f"• Рост: {height}см\n"
-        f"• Вес: {weight}кг\n"
-        f"• Активность: {activity}\n"
-        f"• Цель: {goal}\n\n"
-        f"Твои нормы:\n"
-        f"• BMR (базовый обмен): ~{calc_tdee(gender, weight, height, age, 'sedentary'):.0f} ккал\n"
-        f"• TDEE (с учётом активности): ~{tdee:.0f} ккал\n"
-        f"• Целевые калории: ~{target_cal:.0f} ккал\n"
-        f"• Белки: {macros['protein_g']}г | Жиры: {macros['fat_g']}г | Углеводы: {macros['carbs_g']}г\n\n"
-        f"Теперь просто пиши мне о своих приёмах пищи, тренировках и сне — я всё запомню. "
-        f"Если захочешь изменить тон общения — просто скажи!"
+    gender_ru = "мужской" if gender == "M" else "женский"
+    bmr_val = int(calc_tdee(gender, weight, height, age, "sedentary"))
+    completion_prompt = ONBOARDING_COMPLETION_PROMPT.format(
+        gender=gender_ru, age=age, height_cm=height, weight_kg=weight,
+        activity_level=activity, goal=goal, bmr=bmr_val, tdee=int(tdee),
+        target_cal=int(target_cal), protein_g=macros["protein_g"],
+        fat_g=macros["fat_g"], carbs_g=macros["carbs_g"],
     )
+    ai_response = await ask_ai_race(
+        [{"role": "user", "content": completion_prompt}],
+        tools=None, temperature=0.8, max_tokens=512
+    )
+    reply = ai_response.get("content", "")
+    if not reply:
+        reply = (
+            f"Отлично! Я понял: {gender_ru}, {age} лет, {height}см, {weight}кг.\n"
+            f"Твой BMR: ~{bmr_val} ккал, TDEE: ~{int(tdee)} ккал, цель: {goal}.\n"
+            f"Пиши о своих приёмах пищи, тренировках и сне — я всё запомню!"
+        )
+    await update.message.reply_text(reply)

@@ -1,11 +1,12 @@
 import json
 import os
-import pickle
+import time
 from typing import Optional, Any
 
 from bot.config import REDIS_URL
 
 _redis = None
+_last_connect_attempt = 0
 _fallback_dir = os.path.join(os.path.dirname(__file__), "..", "..", "data", "cache_fallback")
 os.makedirs(_fallback_dir, exist_ok=True)
 
@@ -16,8 +17,12 @@ def _get_fallback_path(key: str) -> str:
 
 
 async def get_redis():
-    global _redis
+    global _redis, _last_connect_attempt
+    now = time.time()
+    if _redis is None and now - _last_connect_attempt < 60:
+        return None
     if _redis is None:
+        _last_connect_attempt = now
         try:
             import redis.asyncio as aioredis
             _redis = aioredis.from_url(REDIS_URL, decode_responses=True)
@@ -38,8 +43,15 @@ async def cache_get(key: str) -> Optional[Any]:
             pass
     fpath = _get_fallback_path(key)
     if os.path.exists(fpath):
-        with open(fpath, "r") as f:
-            return json.load(f)
+        try:
+            with open(fpath, "r") as f:
+                entry = json.load(f)
+            if "expires_at" in entry and entry["expires_at"] < time.time():
+                os.remove(fpath)
+                return None
+            return entry.get("value")
+        except Exception:
+            return None
     return None
 
 
@@ -53,8 +65,9 @@ async def cache_set(key: str, value: Any, ttl: int = 3600):
         except Exception:
             pass
     fpath = _get_fallback_path(key)
+    entry = {"value": value, "expires_at": time.time() + ttl}
     with open(fpath, "w") as f:
-        f.write(data)
+        json.dump(entry, f, ensure_ascii=False, default=str)
 
 
 async def cache_delete(key: str):

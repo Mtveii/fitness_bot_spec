@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.db.models import (
     User, MealLog, TimeObservation, ObservationType, ObservationSource,
-    UserMemoryProfile, WeightHistory, WorkoutLog, SleepLog, SupplementLog
+    UserMemoryProfile, WeightHistory, WorkoutLog, ExerciseSet, SleepLog, SupplementLog
 )
 from bot.db.base import async_session
 from bot.cache.redis_client import cache_get, cache_set, cache_delete
@@ -20,7 +20,7 @@ async def handle_log_food(args: dict, user_id: int, context: dict) -> dict:
             return {"error": "User not found"}
         meal = MealLog(
             user_id=user_id,
-            date=datetime.datetime.utcnow(),
+            date=datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
             food_name=args.get("food_name", ""),
             weight_g=args.get("weight_g", 0),
             calories=args.get("calories"),
@@ -38,13 +38,13 @@ async def handle_propose_workout(args: dict, user_id: int, context: dict) -> dic
         "type": "workout",
         "user_id": user_id,
         "data": args,
-        "created_at": datetime.datetime.utcnow().isoformat(),
+        "created_at": datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat(),
     }
     await cache_set(f"pending_action:{user_id}", pending, ttl=PENDING_TTL)
     return {
         "status": "pending",
         "message": "Новая тренировка требует подтверждения",
-        "summary": f"{args.get('workout_name')} — {len(args.get('exercises', []))} упражнений",
+        "summary": f"{args.get('workout_name', 'Тренировка')} — {len(args.get('exercises', []))} упражнений",
     }
 
 
@@ -53,13 +53,13 @@ async def handle_propose_reminder(args: dict, user_id: int, context: dict) -> di
         "type": "reminder",
         "user_id": user_id,
         "data": args,
-        "created_at": datetime.datetime.utcnow().isoformat(),
+        "created_at": datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat(),
     }
     await cache_set(f"pending_action:{user_id}", pending, ttl=PENDING_TTL)
     return {
         "status": "pending",
         "message": "Напоминание требует подтверждения",
-        "summary": f"{args.get('text')} в {args.get('time')}",
+        "summary": f"{args.get('text', 'Напоминание')} в {args.get('time', '??:??')}",
     }
 
 
@@ -67,7 +67,7 @@ async def handle_mark_time_observation(args: dict, user_id: int, context: dict) 
     obs_type_str = args.get("observation_type", "meal")
     obs_type = ObservationType(obs_type_str)
     source = ObservationSource.explicit
-    observed_at = datetime.datetime.fromisoformat(args.get("observed_at")) if args.get("observed_at") else datetime.datetime.utcnow()
+    observed_at = datetime.datetime.fromisoformat(args.get("observed_at")) if args.get("observed_at") else datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
     confidence = args.get("confidence", 0.8)
     async with async_session() as session:
         obs = TimeObservation(
@@ -83,10 +83,16 @@ async def handle_mark_time_observation(args: dict, user_id: int, context: dict) 
     return {"status": "ok", "observation_type": obs_type_str, "observed_at": str(observed_at)}
 
 
+ALLOWED_SETTINGS_KEYS = {"reply_format", "notification_style", "language", "units"}
+
+
 async def handle_update_preference(args: dict, user_id: int, context: dict) -> dict:
     key = args.get("key", "")
     value = args.get("value", "")
     if key == "communication_tone":
+        valid_tones = {"strict", "friendly", "sarcastic", "harsh"}
+        if value.split("+")[0] not in valid_tones:
+            return {"error": f"Invalid tone: {value}. Valid: {valid_tones}"}
         async with async_session() as session:
             profile = await session.execute(
                 select(UserMemoryProfile).where(UserMemoryProfile.user_id == user_id)
@@ -98,6 +104,24 @@ async def handle_update_preference(args: dict, user_id: int, context: dict) -> d
             profile.communication_tone = value
             await session.commit()
         return {"status": "ok", "updated": f"{key} = {value}"}
+    if key == "gender_switch":
+        if value not in ("male", "female"):
+            return {"error": f"Invalid gender_switch value: {value}. Must be 'male' or 'female'"}
+        async with async_session() as session:
+            profile = await session.execute(
+                select(UserMemoryProfile).where(UserMemoryProfile.user_id == user_id)
+            )
+            profile = profile.scalar_one_or_none()
+            if not profile:
+                profile = UserMemoryProfile(user_id=user_id)
+                session.add(profile)
+            current = profile.communication_tone or "friendly"
+            base = current.split("+")[0] if "+" in current else current
+            profile.communication_tone = base + "+" + value
+            await session.commit()
+        return {"status": "ok", "updated": f"gender_switch = {value}"}
+    if key not in ALLOWED_SETTINGS_KEYS:
+        return {"error": f"Unknown setting key: {key}. Allowed: {ALLOWED_SETTINGS_KEYS}"}
     async with async_session() as session:
         user = await session.get(User, user_id)
         if user:
@@ -198,13 +222,16 @@ async def handle_confirm(args: dict, user_id: int, context: dict) -> dict:
         return {"status": "error", "message": "Нет ожидающих действий"}
     action_type = pending.get("type")
     data = pending.get("data", {})
-    await cache_delete(f"pending_action:{user_id}")
 
     if action_type == "workout":
-        return await _save_workout(data, user_id)
+        result = await _save_workout(data, user_id)
     elif action_type == "reminder":
-        return await _save_reminder(data, user_id)
-    return {"status": "ok", "message": "Действие подтверждено"}
+        result = await _save_reminder(data, user_id)
+    else:
+        result = {"status": "ok", "message": "Действие подтверждено"}
+
+    await cache_delete(f"pending_action:{user_id}")
+    return result
 
 
 async def handle_reject(args: dict, user_id: int, context: dict) -> dict:
@@ -219,20 +246,42 @@ async def _save_workout(data: dict, user_id: int) -> dict:
     async with async_session() as session:
         log = WorkoutLog(
             user_id=user_id,
-            date=datetime.datetime.utcnow(),
+            date=datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
             workout_name=data.get("workout_name", "Тренировка"),
+            duration_minutes=data.get("duration_minutes"),
+            calories_burned=data.get("calories_burned"),
         )
         session.add(log)
+        await session.flush()
+
+        exercises = data.get("exercises", [])
+        for i, ex in enumerate(exercises):
+            if isinstance(ex, dict):
+                es = ExerciseSet(
+                    log_id=log.id,
+                    exercise_name=ex.get("name", "Unknown"),
+                    set_number=ex.get("set_number", i + 1),
+                    weight_kg=ex.get("weight_kg", 0),
+                    reps=ex.get("reps", 0),
+                    rpe=ex.get("rpe"),
+                )
+                session.add(es)
+
         await session.commit()
     return {"status": "ok", "workout": data.get("workout_name")}
 
 
 async def _save_reminder(data: dict, user_id: int) -> dict:
     reminders = await cache_get(f"reminders:{user_id}") or []
+    text = data.get("text")
+    time = data.get("time")
+    for existing in reminders:
+        if existing.get("text") == text and existing.get("time") == time:
+            return {"status": "ok", "reminder": text, "note": "already exists"}
     reminders.append({
-        "text": data.get("text"),
-        "time": data.get("time"),
+        "text": text,
+        "time": time,
         "days": data.get("days", ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]),
     })
-    await cache_set(f"reminders:{user_id}", reminders)
-    return {"status": "ok", "reminder": data.get("text")}
+    await cache_set(f"reminders:{user_id}", reminders, ttl=86400 * 30)
+    return {"status": "ok", "reminder": text}

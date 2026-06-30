@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 async def recalculate_profile(user_id: int):
     async with async_session() as session:
-        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=OBSERVATION_RETENTION_DAYS)
+        cutoff = datetime.datetime.now(datetime.UTC).replace(tzinfo=None) - datetime.timedelta(days=OBSERVATION_RETENTION_DAYS)
         query = select(TimeObservation).where(
             TimeObservation.user_id == user_id,
             TimeObservation.observed_at >= cutoff,
@@ -45,13 +45,55 @@ async def recalculate_profile(user_id: int):
             profile.avg_meal_times = avg_meal_times
         if busy_hours:
             profile.busy_hours = busy_hours
-        profile.last_summarized_at = datetime.datetime.utcnow()
+        profile.last_summarized_at = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
 
         await session.commit()
 
         await _clean_old_observations(session, user_id, cutoff)
 
+        await _summarize_preferences(user_id)
+
         logger.info(f"Profile recalculated for user {user_id}: wake={avg_wake}, sleep={avg_sleep}")
+
+
+async def _summarize_preferences(user_id: int):
+    from bot.ai.clients import ask_ai_race
+    from bot.ai.prompts import SUMMARIZATION_PROMPT
+    from bot.db.models import MealLog, WorkoutLog, SleepLog, WeightHistory
+
+    async with async_session() as session:
+        cutoff = datetime.datetime.now(datetime.UTC).replace(tzinfo=None) - datetime.timedelta(days=OBSERVATION_RETENTION_DAYS)
+        meals = (await session.execute(
+            select(MealLog.food_name).where(MealLog.user_id == user_id, MealLog.date >= cutoff).limit(50)
+        )).scalars().all()
+        workouts = (await session.execute(
+            select(WorkoutLog.workout_name).where(WorkoutLog.user_id == user_id, WorkoutLog.date >= cutoff).limit(20)
+        )).scalars().all()
+        sleeps = (await session.execute(
+            select(SleepLog.duration_hours).where(SleepLog.user_id == user_id, SleepLog.date >= cutoff).limit(30)
+        )).scalars().all()
+
+        observations_text = f"Еда: {', '.join(set(meals[-20:])) if meals else 'нет данных'}\n"
+        observations_text += f"Тренировки: {', '.join(set(workouts[-10:])) if workouts else 'нет данных'}\n"
+        if sleeps:
+            avg_sleep_h = sum(sleeps) / len(sleeps)
+            observations_text += f"Средняя длительность сна: {avg_sleep_h:.1f}ч ({len(sleeps)} записей)\n"
+
+        response = await ask_ai_race(
+            [{"role": "user", "content": SUMMARIZATION_PROMPT + "\n\n" + observations_text}],
+            tools=None, temperature=0.5, max_tokens=512
+        )
+        summary_text = response.get("content", "")
+
+        if summary_text:
+            profile_result = await session.execute(
+                select(UserMemoryProfile).where(UserMemoryProfile.user_id == user_id)
+            )
+            profile = profile_result.scalar_one_or_none()
+            if profile:
+                profile.preferences_summary = summary_text
+                profile.last_summarized_at = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+                await session.commit()
 
 
 def _weighted_avg_time(observations: list) -> str:

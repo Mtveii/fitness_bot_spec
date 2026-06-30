@@ -1,0 +1,1 @@
+{"type": "workout", "user_id": 800, "data": {"workout_name": "Ноги", "exercises": [{"name": "Присед", "sets": 3, "reps": "10", "weight_kg": 60}]}, "created_at": "2026-06-30T11:00:23.504809"}

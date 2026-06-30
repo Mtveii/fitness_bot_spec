@@ -1,11 +1,10 @@
-from bot.config import GROQ_MODEL
-
 TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
             "name": "log_food_item",
             "description": "Записать приём пищи (еду). Низкий риск — выполняется сразу.",
+
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -25,6 +24,7 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "propose_workout",
             "description": "Предложить новую тренировку. Высокий риск — требует подтверждения.",
+
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -52,6 +52,7 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "propose_reminder",
             "description": "Создать напоминание. Высокий риск — требует подтверждения.",
+
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -72,6 +73,7 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "mark_time_observation",
             "description": "Зафиксировать наблюдение о времени (подъём, отбой, приём пищи). Низкий риск.",
+
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -102,12 +104,13 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "update_preference",
             "description": "Обновить предпочтение пользователя (тон общения, формат ответов и т.д.). Низкий риск.",
+
             "parameters": {
                 "type": "object",
                 "properties": {
                     "key": {
                         "type": "string",
-                        "description": "Ключ настройки: communication_tone, reply_format, etc."
+                        "description": "Ключ настройки: communication_tone, gender_switch, reply_format"
                     },
                     "value": {
                         "type": "string",
@@ -123,6 +126,7 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "query_stats",
             "description": "Получить статистику пользователя за период. Только чтение, низкий риск.",
+
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -154,6 +158,7 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "extract_profile_info",
             "description": "Извлечь информацию о пользователе из свободного текста для заполнения профиля.",
+
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -189,7 +194,8 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "confirm_action",
-            "description": "Подтвердить ожидающее действие (высокорисковое). Вызывай, когда пользователь говорит 'да', 'подтверждаю', 'ок', 'согласен' и подобное.",
+            "description": "Подтвердить ожидающее действие. Вызывай, когда пользователь говорит 'да', 'подтверждаю', 'ок', 'согласен' и подобное.",
+
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -204,6 +210,7 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "reject_action",
             "description": "Отклонить ожидающее действие. Вызывай, когда пользователь отказывается или просит отменить.",
+
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -240,4 +247,8 @@ def get_tool_schema(names: list = None) -> list:
 
 ALL_TOOL_NAMES = [td["function"]["name"] for td in TOOL_DEFINITIONS]
 ONBOARDING_TOOL_NAMES = ["extract_profile_info"]
-MAIN_TOOL_NAMES = [n for n in ALL_TOOL_NAMES if n != "extract_profile_info"]
+MAIN_TOOL_NAMES = [n for n in ALL_TOOL_NAMES if n not in ("extract_profile_info", "confirm_action", "reject_action")]
+
+
+def requires_confirmation(tool_name: str) -> bool:
+    return tool_name in HIGH_RISK_TOOLS

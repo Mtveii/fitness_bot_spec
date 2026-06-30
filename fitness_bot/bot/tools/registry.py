@@ -1,10 +1,12 @@
 import json
 import logging
-from typing import Optional
+import asyncio
 
 from bot.tools.definitions import CONFIRM_TOOLS
 
 logger = logging.getLogger(__name__)
+
+TOOL_EXECUTION_TIMEOUT = 10
 
 
 async def execute_tool(tool_name: str, args: dict, user_id: int, context: dict) -> str:
@@ -29,8 +31,14 @@ async def execute_tool(tool_name: str, args: dict, user_id: int, context: dict) 
     if not handler:
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
     try:
-        result = await handler(args, user_id, context)
-        return json.dumps(result, ensure_ascii=False, default=str)
+        result = await asyncio.wait_for(
+            handler(args, user_id, context),
+            timeout=TOOL_EXECUTION_TIMEOUT,
+        )
+        return result
+    except asyncio.TimeoutError:
+        logger.warning(f"Tool {tool_name} timed out after {TOOL_EXECUTION_TIMEOUT}s")
+        return {"error": "Tool execution timed out"}
     except Exception as e:
         logger.exception(f"Error executing {tool_name}: {e}")
-        return json.dumps({"error": str(e)})
+        return {"error": "Internal tool error"}
