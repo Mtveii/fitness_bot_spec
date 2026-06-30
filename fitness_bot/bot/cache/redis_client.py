@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import asyncio
 from typing import Optional, Any
 
 from bot.config import REDIS_URL
@@ -44,15 +45,25 @@ async def cache_get(key: str) -> Optional[Any]:
     fpath = _get_fallback_path(key)
     if os.path.exists(fpath):
         try:
-            with open(fpath, "r") as f:
-                entry = json.load(f)
+            loop = asyncio.get_event_loop()
+            entry = await loop.run_in_executor(None, _read_fallback_sync, fpath)
             if "expires_at" in entry and entry["expires_at"] < time.time():
-                os.remove(fpath)
+                await loop.run_in_executor(None, os.remove, fpath)
                 return None
             return entry.get("value")
         except Exception:
             return None
     return None
+
+
+def _read_fallback_sync(fpath: str) -> dict:
+    with open(fpath, "r") as f:
+        return json.load(f)
+
+
+def _write_fallback_sync(fpath: str, entry: dict):
+    with open(fpath, "w") as f:
+        json.dump(entry, f, ensure_ascii=False, default=str)
 
 
 async def cache_set(key: str, value: Any, ttl: int = 3600):
@@ -66,8 +77,8 @@ async def cache_set(key: str, value: Any, ttl: int = 3600):
             pass
     fpath = _get_fallback_path(key)
     entry = {"value": value, "expires_at": time.time() + ttl}
-    with open(fpath, "w") as f:
-        json.dump(entry, f, ensure_ascii=False, default=str)
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _write_fallback_sync, fpath, entry)
 
 
 async def cache_delete(key: str):

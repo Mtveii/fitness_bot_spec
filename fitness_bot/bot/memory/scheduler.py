@@ -1,11 +1,15 @@
 import logging
 import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 
-from bot.config import PROFILE_RECALCULATE_INTERVAL_HOURS, NOTIFICATION_CHECK_INTERVAL_MINUTES
+from bot.config import PROFILE_RECALCULATE_INTERVAL_HOURS, NOTIFICATION_CHECK_INTERVAL_MINUTES, DATABASE_URL
 
 logger = logging.getLogger(__name__)
-scheduler = AsyncIOScheduler()
+
+_sync_db_url = DATABASE_URL.replace("+aiosqlite", "").replace("aiosqlite", "sqlite")
+_jobstore = SQLAlchemyJobStore(url=_sync_db_url)
+scheduler = AsyncIOScheduler(jobstores={"default": _jobstore})
 
 
 async def recalculate_all_profiles():
@@ -95,7 +99,7 @@ async def check_dynamic_notifications():
 
 async def _send_missed_meal_notification(tg_id: int, expected_time: str,
                                          busy_hours: list, current_hour: int):
-    from bot.ai.clients import ask_ai_race
+    from bot.ai.clients import ask_groq
     from bot.ai.prompts import SYSTEM_PROMPT
     from bot.config import BOT_TOKEN
     from telegram import Bot
@@ -113,11 +117,11 @@ async def _send_missed_meal_notification(tg_id: int, expected_time: str,
         f"Лучше мягко: 'учитывая твой обычный график, возможно, ты был занят — "
         f"не забудь поесть, когда появится возможность'."
     )
-    response = await ask_ai_race(
+    response = await ask_groq(
         [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
         tools=None, temperature=0.8, max_tokens=256
     )
-    message = response.get("content", "")
+    message = response.get("content", "") if response else ""
     if not message:
         if busy_context:
             message = ("Учитывая твой обычный график, возможно, ты был занят — "

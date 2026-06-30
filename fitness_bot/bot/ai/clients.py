@@ -6,6 +6,7 @@ from bot.config import (
     GROQ_API_KEY, GEMINI_API_KEY, GROQ_MODEL, GEMINI_MODEL,
     AI_TIMEOUT, AI_RACE_TIMEOUT, STREAM_TIMEOUT
 )
+from bot.ai.circuit_breaker import circuit_breaker
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ async def ask_groq(messages: list, tools: Optional[list] = None,
             }
         except asyncio.TimeoutError:
             logger.warning("Groq timeout")
+            circuit_breaker.record_failure("groq")
             return None
         except Exception as e:
             err_str = str(e).lower()
@@ -79,8 +81,9 @@ async def ask_groq(messages: list, tools: Optional[list] = None,
                 messages = messages + [system_note]
                 continue
             logger.warning(f"Groq error: {e}")
+            circuit_breaker.record_failure("groq")
             return None
-    return None
+    circuit_breaker.record_success("groq")
 
 
 async def ask_gemini(messages: list, tools: Optional[list] = None,
@@ -132,6 +135,7 @@ async def ask_gemini(messages: list, tools: Optional[list] = None,
                             "id": f"gemini_{tc.name}_{i}",
                             "function": {"name": tc.name, "arguments": args}
                         })
+        circuit_breaker.record_success("gemini")
         return {
             "provider": "gemini",
             "content": resp.text if hasattr(resp, 'text') else "",
@@ -143,21 +147,35 @@ async def ask_gemini(messages: list, tools: Optional[list] = None,
         }
     except asyncio.TimeoutError:
         logger.warning("Gemini timeout")
+        circuit_breaker.record_failure("gemini")
         return None
     except Exception as e:
         logger.warning(f"Gemini error: {e}")
+        circuit_breaker.record_failure("gemini")
         return None
 
 
 async def ask_ai_race(messages: list, tools: Optional[list] = None,
                       temperature: float = 0.7, max_tokens: int = 1024) -> dict:
+    available = circuit_breaker.get_available_providers(["groq", "gemini"])
+
     async def _with_name(coro, name):
         return name, await coro
 
-    tasks = [
-        asyncio.create_task(_with_name(ask_groq(messages, tools, temperature, max_tokens), "groq")),
-        asyncio.create_task(_with_name(ask_gemini(messages, tools, temperature, max_tokens), "gemini")),
-    ]
+    tasks = []
+    if "groq" in available:
+        tasks.append(
+            asyncio.create_task(_with_name(ask_groq(messages, tools, temperature, max_tokens), "groq"))
+        )
+    if "gemini" in available:
+        tasks.append(
+            asyncio.create_task(_with_name(ask_gemini(messages, tools, temperature, max_tokens), "gemini"))
+        )
+    if not tasks:
+        tasks = [
+            asyncio.create_task(_with_name(ask_groq(messages, tools, temperature, max_tokens), "groq")),
+        ]
+
     done, pending = await asyncio.wait(tasks, timeout=AI_RACE_TIMEOUT, return_when=asyncio.FIRST_COMPLETED)
 
     for task in pending:

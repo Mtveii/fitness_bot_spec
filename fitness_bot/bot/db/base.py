@@ -13,4 +13,11 @@ class Base(DeclarativeBase):
 
 async def init_db():
     async with engine.begin() as conn:
+        if "sqlite" in DATABASE_URL:
+            await conn.execute(
+                __import__("sqlalchemy").text("PRAGMA journal_mode=WAL")
+            )
+            await conn.execute(
+                __import__("sqlalchemy").text("PRAGMA busy_timeout=5000")
+            )
         await conn.run_sync(Base.metadata.create_all)

@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from bot.ai.clients import ask_ai_race, ask_ai_stream
-from bot.ai.prompts import SYSTEM_PROMPT
+from bot.ai.prompts import SYSTEM_PROMPT, PERSONA_PROMPT
 from bot.tools.definitions import get_tool_schema, MAIN_TOOL_NAMES, CONFIRM_TOOLS
 from bot.tools.dispatcher import handle_tool_calls
 from bot.cache.redis_client import cache_get, cache_set
@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 STREAM_EDIT_MIN_INTERVAL = 0.5
 STREAM_MAX_MSG_LEN = 4096
+DIALOG_BUFFER_MAX = 20
+DIALOG_BUFFER_KEEP = 15
+DIALOG_SUMMARY_EVERY = 10
 
 SIGNAL_KEYWORDS = {
     "еда", "ел", "ест", "поел", "съел", "попил", "выпил", "вода", "завтрак",
@@ -62,6 +65,18 @@ def _should_use_tools(text: str) -> bool:
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        await _handle_message_inner(update, context)
+    except Exception as e:
+        logger.exception(f"Message handler crashed: {e}")
+        try:
+            if update and update.message:
+                await update.message.reply_text("Произошла ошибка. Попробуй ещё раз.")
+        except Exception:
+            pass
+
+
+async def _handle_message_inner(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update or not update.message or not update.message.text:
         return
     if not update.effective_user:
@@ -90,8 +105,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     now = datetime.datetime.now()
     current_time_str = now.strftime("%Y-%m-%d %H:%M")
+    use_tools = _should_use_tools(user_text)
+    prompt_base = SYSTEM_PROMPT if use_tools else PERSONA_PROMPT
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT.format(current_time=current_time_str) + f"\n\nТон общения: {tone}\n\nПрофиль пользователя:\n{profile_summary}"},
+        {"role": "system", "content": prompt_base.format(current_time=current_time_str) + f"\n\nТон общения: {tone}\n\nПрофиль пользователя:\n{profile_summary}"},
         *history,
         {"role": "user", "content": user_text},
     ]
@@ -100,7 +117,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if pending_action:
         context.user_data["_pending_reminder"] = pending_action.get("summary", "есть ожидающее действие")
 
-    if _should_use_tools(user_text):
+    if use_tools:
         tools = get_tool_schema(MAIN_TOOL_NAMES)
     else:
         tools = None
@@ -222,7 +239,7 @@ async def _get_dialog_buffer(tg_id: int) -> list:
     key = f"dialog_buffer:{tg_id}"
     data = await cache_get(key)
     if data and isinstance(data, list):
-        return data[-6:]
+        return data[-DIALOG_BUFFER_KEEP:]
     return []
 
 
@@ -231,9 +248,33 @@ async def _save_dialog_buffer(tg_id: int, user_text: str, bot_reply: str):
     data = await cache_get(key) or []
     data.append({"role": "user", "content": user_text[:500]})
     data.append({"role": "assistant", "content": bot_reply[:1000]})
-    if len(data) > 10:
-        data = data[-10:]
+
+    if len(data) > DIALOG_BUFFER_MAX:
+        old_msgs = data[:-DIALOG_BUFFER_KEEP]
+        data = data[-DIALOG_BUFFER_KEEP:]
+        if len(old_msgs) >= DIALOG_SUMMARY_EVERY:
+            summary = await _summarize_old_dialog(old_msgs)
+            if summary:
+                data = [{"role": "system", "content": f"Краткое из предыдущего разговора: {summary}"}] + data
+
     await cache_set(key, data, ttl=DIALOG_BUFFER_TTL)
+
+
+async def _summarize_old_dialog(messages: list) -> str:
+    from bot.ai.clients import ask_groq
+    conversation = "\n".join(
+        f"{'User' if m['role'] == 'user' else 'Bot'}: {m['content'][:200]}"
+        for m in messages[-10:]
+    )
+    try:
+        resp = await ask_groq(
+            [{"role": "system", "content": "Суммаризируй этот диалог кратко (2-3 предложения), сохранив ключевую информацию о пользователе."},
+             {"role": "user", "content": conversation}],
+            tools=None, temperature=0.3, max_tokens=256
+        )
+        return resp.get("content", "") if resp else ""
+    except Exception:
+        return ""
 
 
 async def _stream_response(update: Update, messages: list, fallback_text: str):

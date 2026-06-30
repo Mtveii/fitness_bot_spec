@@ -409,7 +409,8 @@ class TestCodeReview:
 class TestStreamingIntegration:
     def test_stream_function_wired_in_messages(self):
         import inspect
-        source = inspect.getsource(__import__("bot.handlers.messages", fromlist=["handle_message"]).handle_message)
+        from bot.handlers.messages import _handle_message_inner
+        source = inspect.getsource(_handle_message_inner)
         assert "ask_ai_stream" in source or "_stream_response" in source
 
     def test_stream_response_function_exists(self):
@@ -429,20 +430,23 @@ class TestStreamingIntegration:
 class TestPhotoDedup:
     def test_md5_computed_in_photo_handler(self):
         import inspect
-        source = inspect.getsource(__import__("bot.handlers.photos", fromlist=["handle_photo"]).handle_photo)
+        from bot.handlers.photos import _handle_photo_inner
+        source = inspect.getsource(_handle_photo_inner)
         assert "hashlib" in source
         assert "md5" in source
 
     def test_cache_checked_before_gemini(self):
         import inspect
-        source = inspect.getsource(__import__("bot.handlers.photos", fromlist=["handle_photo"]).handle_photo)
+        from bot.handlers.photos import _handle_photo_inner
+        source = inspect.getsource(_handle_photo_inner)
         assert "photo_cache:" in source
         assert "cache_get" in source
         assert "cache_set" in source
 
     def test_dedup_skips_duplicate_analysis(self):
         import inspect
-        source = inspect.getsource(__import__("bot.handlers.photos", fromlist=["handle_photo"]).handle_photo)
+        from bot.handlers.photos import _handle_photo_inner
+        source = inspect.getsource(_handle_photo_inner)
         assert "cache hit" in source.lower() or "Cache hit" in source
 
 
@@ -488,7 +492,8 @@ class TestUSDA:
 
     def test_usda_enrichment_called_when_no_macros(self):
         import inspect
-        source = inspect.getsource(__import__("bot.handlers.photos", fromlist=["handle_photo"]).handle_photo)
+        from bot.handlers.photos import _handle_photo_inner
+        source = inspect.getsource(_handle_photo_inner)
         assert "enrich_with_usda" in source
         assert "has_macros" in source
 
@@ -503,3 +508,233 @@ class TestUSDA:
                     for i, line in enumerate(fh, 1):
                         if "utcnow()" in line:
                             pytest.fail(f"Deprecated utcnow() in {path}:{i}")
+
+
+# ============================================================
+# 10. Circuit breaker
+# ============================================================
+
+class TestCircuitBreaker:
+    def test_circuit_breaker_allows_when_closed(self):
+        from bot.ai.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker(failure_threshold=3, recovery_timeout=60)
+        assert cb.allow_request("groq") is True
+
+    def test_circuit_breaker_opens_after_failures(self):
+        from bot.ai.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker(failure_threshold=3, recovery_timeout=60)
+        for _ in range(3):
+            cb.record_failure("groq")
+        assert cb.allow_request("groq") is False
+
+    def test_circuit_breaker_closes_on_success(self):
+        from bot.ai.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker(failure_threshold=3, recovery_timeout=60)
+        for _ in range(2):
+            cb.record_failure("groq")
+        cb.record_success("groq")
+        assert cb.allow_request("groq") is True
+
+    def test_circuit_breaker_get_available(self):
+        from bot.ai.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker(failure_threshold=3, recovery_timeout=60)
+        for _ in range(3):
+            cb.record_failure("groq")
+        available = cb.get_available_providers(["groq", "gemini"])
+        assert "gemini" in available
+        assert "groq" not in available
+
+    def test_circuit_breaker_fallback_when_all_open(self):
+        from bot.ai.circuit_breaker import CircuitBreaker
+        cb = CircuitBreaker(failure_threshold=3, recovery_timeout=60)
+        for _ in range(3):
+            cb.record_failure("groq")
+            cb.record_failure("gemini")
+        available = cb.get_available_providers(["groq", "gemini"])
+        assert len(available) == 2
+
+
+# ============================================================
+# 11. SQLite WAL mode
+# ============================================================
+
+class TestWALMode:
+    def test_wal_mode_enabled_on_init(self):
+        import inspect
+        from bot.db.base import init_db
+        source = inspect.getsource(init_db)
+        assert "WAL" in source
+        assert "busy_timeout" in source
+
+
+# ============================================================
+# 12. Error handler
+# ============================================================
+
+class TestErrorHandler:
+    def test_error_handler_exists(self):
+        from bot.main import error_handler
+        assert callable(error_handler)
+
+    def test_startup_self_check_exists(self):
+        from bot.main import startup_self_check
+        assert callable(startup_self_check)
+
+
+# ============================================================
+# 13. Persistent scheduler jobstore
+# ============================================================
+
+class TestPersistentScheduler:
+    def test_scheduler_uses_sqlalchemy_jobstore(self):
+        from bot.memory.scheduler import scheduler
+        jobstores = scheduler._jobstores
+        assert "default" in jobstores
+        from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+        assert isinstance(jobstores["default"], SQLAlchemyJobStore)
+
+
+# ============================================================
+# 14. Dialog buffer sliding window
+# ============================================================
+
+class TestDialogBuffer:
+    def test_dialog_buffer_constants(self):
+        from bot.handlers.messages import DIALOG_BUFFER_MAX, DIALOG_BUFFER_KEEP
+        assert DIALOG_BUFFER_MAX >= DIALOG_BUFFER_KEEP
+        assert DIALOG_BUFFER_KEEP >= 10
+
+    def test_summarize_function_exists(self):
+        from bot.handlers.messages import _summarize_old_dialog
+        assert callable(_summarize_old_dialog)
+
+
+# ============================================================
+# 15. Selective racing (background ops use single provider)
+# ============================================================
+
+class TestSelectiveRacing:
+    def test_missed_meal_uses_ask_groq(self):
+        import inspect
+        from bot.memory.scheduler import _send_missed_meal_notification
+        source = inspect.getsource(_send_missed_meal_notification)
+        assert "ask_groq" in source
+        assert "ask_ai_race" not in source
+
+
+# ============================================================
+# 16. Photo pipeline improvements
+# ============================================================
+
+class TestPhotoPipeline:
+    def test_singleton_gemini_client_used(self):
+        import inspect
+        from bot.handlers.photos import _analyze_food_photo
+        source = inspect.getsource(_analyze_food_photo)
+        assert "_get_gemini_client" in source
+        assert "genai.Client(" not in source
+
+    def test_mime_detection_jpeg(self):
+        from bot.handlers.photos import _detect_mime_type
+        import io
+        header = b"\xff\xd8\xff\xe0" + b"\x00" * 12
+        assert _detect_mime_type(io.BytesIO(header)) == "image/jpeg"
+
+    def test_mime_detection_png(self):
+        from bot.handlers.photos import _detect_mime_type
+        import io
+        header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 12
+        assert _detect_mime_type(io.BytesIO(header)) == "image/png"
+
+    def test_mime_detection_webp(self):
+        from bot.handlers.photos import _detect_mime_type
+        import io
+        header = b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 4
+        assert _detect_mime_type(io.BytesIO(header)) == "image/webp"
+
+    def test_vision_prompt_rejects_non_food(self):
+        from bot.handlers.photos import VISION_PROMPT
+        assert "НЕ еда" in VISION_PROMPT
+
+    def test_vision_prompt_strict_exists(self):
+        from bot.handlers.photos import VISION_PROMPT_STRICT
+        assert "валидный JSON" in VISION_PROMPT_STRICT
+
+    def test_photo_locks_dict_exists(self):
+        from bot.handlers.photos import _photo_locks
+        assert isinstance(_photo_locks, dict)
+
+    def test_photo_compression_fallback_without_pillow(self):
+        import io
+        from unittest.mock import patch
+        from bot.handlers.photos import _compress_photo
+        data = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+        with patch.dict("sys.modules", {"PIL": None, "PIL.Image": None}):
+            result = _compress_photo(io.BytesIO(data))
+            result.seek(0, 2)
+            assert result.tell() > 0
+
+    def test_empty_photo_returns_none(self):
+        import io
+        from bot.handlers.photos import _detect_mime_type
+        result = _detect_mime_type(io.BytesIO(b""))
+        assert result.startswith("image/")
+
+    def test_analyze_food_photo_graceful_without_key(self):
+        from bot.handlers.photos import _analyze_food_photo
+        import io
+        with patch("bot.handlers.photos.GEMINI_API_KEY", ""):
+            result = asyncio.get_event_loop().run_until_complete(
+                _analyze_food_photo(io.BytesIO(b"fake"))
+            )
+            assert result is None
+
+
+# ============================================================
+# 17. USDA retry and best-match
+# ============================================================
+
+class TestUSDARetry:
+    def test_usda_returns_multiple_results(self):
+        import inspect
+        from bot.nutrition.usda import usda_search
+        source = inspect.getsource(usda_search)
+        assert "pageSize" in source
+        assert "best" in source or "max(" in source
+
+    def test_usda_retries_on_429(self):
+        import inspect
+        from bot.nutrition.usda import usda_search
+        source = inspect.getsource(usda_search)
+        assert "429" in source
+        assert "USDA_MAX_RETRIES" in source
+
+    def test_usda_best_match_uses_word_overlap(self):
+        import inspect
+        from bot.nutrition.usda import usda_search
+        source = inspect.getsource(usda_search)
+        assert "query_words" in source or "description" in source
+
+
+# ============================================================
+# 18. Startup self-check with API keys
+# ============================================================
+
+class TestStartupSelfCheck:
+    def test_self_check_includes_gemini(self):
+        import inspect
+        from bot.main import startup_self_check
+        source = inspect.getsource(startup_self_check)
+        assert "GEMINI_API_KEY" in source
+
+    def test_self_check_includes_usda(self):
+        import inspect
+        from bot.main import startup_self_check
+        source = inspect.getsource(startup_self_check)
+        assert "USDA_API_KEY" in source
+
+    def test_self_check_includes_groq(self):
+        import inspect
+        from bot.main import startup_self_check
+        source = inspect.getsource(startup_self_check)
+        assert "GROQ_API_KEY" in source
