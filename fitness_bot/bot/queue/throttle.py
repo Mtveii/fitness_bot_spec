@@ -1,26 +1,33 @@
-"""
-P1.7 — антифлуд на пользователя (rate-limit на вызовы ИИ).
-"""
+import asyncio
 import time
-import logging
-from collections import deque
-
-logger = logging.getLogger(__name__)
-
-# ─── P1.7: Rate-limit ────────────────────────────────────────
-RATE_LIMIT_COUNT = 8       # макс. запросов к ИИ
-RATE_LIMIT_WINDOW_SEC = 60  # за это окно времени
-
-_request_log: dict[int, deque] = {}
+from collections import defaultdict
 
 
-def is_rate_limited(user_id: int) -> bool:
-    """True если юзер превысил лимит запросов к ИИ за окно (P1.7)."""
-    now = time.monotonic()
-    log = _request_log.setdefault(user_id, deque())
-    while log and now - log[0] > RATE_LIMIT_WINDOW_SEC:
-        log.popleft()
-    if len(log) >= RATE_LIMIT_COUNT:
+class Debouncer:
+    def __init__(self, delay: float = 1.0):
+        self.delay = delay
+        self._tasks = {}
+
+    async def debounce(self, key: str, callback, *args, **kwargs):
+        if key in self._tasks:
+            self._tasks[key].cancel()
+        async def _run():
+            await asyncio.sleep(self.delay)
+            await callback(*args, **kwargs)
+        self._tasks[key] = asyncio.create_task(_run())
+
+
+class RateLimiter:
+    def __init__(self, max_calls: int = 10, interval: float = 60.0):
+        self.max_calls = max_calls
+        self.interval = interval
+        self._buckets = defaultdict(list)
+
+    def is_allowed(self, key: str) -> bool:
+        now = time.time()
+        bucket = self._buckets[key]
+        bucket[:] = [t for t in bucket if now - t < self.interval]
+        if len(bucket) >= self.max_calls:
+            return False
+        bucket.append(now)
         return True
-    log.append(now)
-    return False

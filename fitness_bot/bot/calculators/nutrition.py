@@ -1,28 +1,18 @@
-GOALS = {
-    "cut":      {"kcal_delta": -400, "protein_per_kg": 2.1, "fat_per_kg": 0.9},
-    "bulk":     {"kcal_delta": +250, "protein_per_kg": 1.9, "fat_per_kg": 0.9},
-    "recomp":   {"kcal_delta": -150, "protein_per_kg": 2.35, "fat_per_kg": 0.9},
-    "maintain": {"kcal_delta": 0,    "protein_per_kg": 1.7, "fat_per_kg": 0.9},
+MACRO_SPLITS = {
+    "lose": {"protein": 0.40, "fat": 0.30, "carbs": 0.30},
+    "maintain": {"protein": 0.30, "fat": 0.25, "carbs": 0.45},
+    "gain": {"protein": 0.30, "fat": 0.20, "carbs": 0.50},
 }
 
+CALORIES_PER_GRAM = {"protein": 4, "fat": 9, "carbs": 4}
 
-def daily_targets(tdee_value: float, weight_kg: float, goal: str) -> dict:
-    """
-    Возвращает {calories, protein_g, fat_g, carbs_g}
-    """
-    g = GOALS.get(goal, GOALS["maintain"])
 
-    calories = tdee_value + g["kcal_delta"]
-    protein_g = weight_kg * g["protein_per_kg"]
-    fat_g = weight_kg * g["fat_per_kg"]
-
-    # Углеводы = остаток калорий
-    carbs_calories = calories - (protein_g * 4) - (fat_g * 9)
-    carbs_g = max(0, carbs_calories / 4)
-
-    return {
-        "calories": round(calories),
-        "protein_g": round(protein_g),
-        "fat_g": round(fat_g),
-        "carbs_g": round(carbs_g),
-    }
+def calc_macros(target_calories: float, goal: str) -> dict:
+    split = MACRO_SPLITS.get(goal, MACRO_SPLITS["maintain"])
+    result = {}
+    for macro, fraction in split.items():
+        cal_from_macro = target_calories * fraction
+        grams = round(cal_from_macro / CALORIES_PER_GRAM[macro], 1)
+        result[macro + "_g"] = grams
+        result[macro + "_cal"] = round(cal_from_macro, 1)
+    return result

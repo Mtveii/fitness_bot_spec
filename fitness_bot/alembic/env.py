@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 from bot.db.base import Base
-from bot.db.models import *  # noqa: ensure all models are imported
+from bot.db.models import *
 
 config = context.config
 if config.config_file_name is not None:

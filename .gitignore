@@ -55,4 +55,4 @@ dist/
 # Docker
 docker-compose.override.yml
 
-/fitness_bot_spec
+/TuDo 
