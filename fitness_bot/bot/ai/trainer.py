@@ -5,6 +5,7 @@ P3.13 — логирование токенов.
 """
 import logging
 import time
+from datetime import datetime, UTC
 from bot.db.base import async_session
 from bot.db import crud
 from bot.cache.redis_client import (
@@ -30,7 +31,12 @@ SYSTEM_TEMPLATE = """{personality}
 - Если о тренировке — дай совет.
 - Если общее — поддержи.
 - Отвечай МАКСИМАЛЬНО кратко: 1-2 коротких предложения, без вступлений и воды.
-- Не используй markdown."""
+- Не используй markdown.
+
+ВАЖНО про функции (tools):
+- НЕ вызывай функции на приветствия, благодарности, общие вопросы о самочувствии или светскую беседу ("привет", "как дела", "спасибо", "ты молодец").
+- Вызывай функцию ТОЛЬКО когда юзер явно описывает конкретное действие для записи (еда, тренировка, напоминание) с конкретными деталями.
+- Если не уверен, есть ли в сообщении достаточно деталей для функции — отвечай обычным текстом, переспрашивая детали, а не вызывай функцию с неполными/придуманными данными."""
 
 ACTION_KEYWORDS = {
     "LOG_FOOD": ("съел", " поел", "выпил", "ккал", "калори", "завтрак", "обед", "ужин", "перекус"),
@@ -39,6 +45,17 @@ ACTION_KEYWORDS = {
     "LOG_STEPS": ("шаг", "прошёл", "прошел"),
     "UPDATE_WEIGHT": ("вес ", "взвес"),
 }
+
+
+def _might_need_tools(text: str) -> bool:
+    """Грубый предварительный фильтр — пропускает только сообщения, похожие на запрос action."""
+    low = text.lower()
+    has_digit = any(c.isdigit() for c in text)
+    keyword_hit = any(kw in low for kw in [
+        "тренировк", "подход", "повтор", "напомни", "напомина",
+        "съел", "выпил", "поел", "грамм", "г ",
+    ])
+    return has_digit or keyword_hit
 
 
 def daily_targets_val(profile: dict) -> float:
@@ -150,7 +167,11 @@ async def _execute_action(user_id: int, intent: str, text: str) -> None:
 
 
 async def _build_prompt(user_id: int, text: str) -> tuple[str, str] | None:
-    """Собирает (system_prompt, user_text). None если юзер не зарегистрирован."""
+    """Собирает (system_prompt, user_text). None если юзер не зарегистрирован.
+
+    Контекст (профиль, статистика) — в system_prompt для справки модели.
+    user_text — только история диалога + текущее сообщение (чистый ввод для tool-calling).
+    """
     t0 = time.monotonic()
     ctx = await build_context(user_id)
     t1 = time.monotonic()
@@ -163,16 +184,11 @@ async def _build_prompt(user_id: int, text: str) -> tuple[str, str] | None:
         ctx["profile"].get("personality", "friendly"),
         PERSONALITY_PROMPTS["friendly"],
     )
-    system_prompt = SYSTEM_TEMPLATE.format(personality=personality)
 
-    from bot.cache.redis_client import get_chat_history
-    history = await get_chat_history(user_id, limit=2)
-    history_text = "\n".join(
-        f"{'Ч' if m['role'] == 'user' else 'Т'}: {m['content']}" for m in reversed(history)
-    )
-
+    now_str = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     today = ctx.get("today", {})
     context_lines = [
+        f"Текущее время: {now_str}",
         f"Профиль: {ctx['profile']['gender']}, {ctx['profile']['age']}л, "
         f"{ctx['profile']['height']}см, {ctx['profile']['weight']}кг",
         f"Цель: {ctx['profile']['goal']}, Активность: {ctx['profile']['activity']}",
@@ -185,7 +201,18 @@ async def _build_prompt(user_id: int, text: str) -> tuple[str, str] | None:
         context_lines.append(f"Последний сон: {ctx['sleep']['hours']:.1f}ч")
 
     context_data = "\n".join(context_lines)
-    user_text = f"{context_data}\n{history_text}\nЧеловек: {text}"
+    system_prompt = (
+        f"{SYSTEM_TEMPLATE.format(personality=personality)}\n\n"
+        f"Контекст юзера (для справки, не копировать в ответ):\n{context_data}"
+    )
+
+    from bot.cache.redis_client import get_chat_history
+    history = await get_chat_history(user_id, limit=2)
+    history_text = "\n".join(
+        f"{'Ч' if m['role'] == 'user' else 'Т'}: {m['content']}" for m in reversed(history)
+    )
+
+    user_text = f"{history_text}\nЧеловек: {text}" if history_text else text
 
     return system_prompt, user_text
 

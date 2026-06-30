@@ -13,6 +13,7 @@ from bot.db.models import User
 from bot.cache.redis_client import get_today_state, update_today_state
 from bot.calculators.tdee import bmr, tdee
 from bot.calculators.nutrition import daily_targets
+from bot.handlers.commands import format_progress_bar
 from bot.ai.clients import ask_ai_race, get_http_client
 
 logger = logging.getLogger(__name__)
@@ -211,12 +212,7 @@ def parse_food_input(text: str) -> tuple[float, str] | None:
     return None
 
 
-def format_progress_bar(current: float, target: float, length: int = 10) -> str:
-    if target <= 0:
-        return "⬜" * length
-    pct = min(current / target, 1.0)
-    filled = round(pct * length)
-    return "🟩" * filled + "⬜" * (length - filled)
+from bot.handlers.commands import format_progress_bar
 
 
 async def get_targets_for_user(user: User) -> dict:

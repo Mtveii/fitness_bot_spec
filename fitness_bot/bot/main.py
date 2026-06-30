@@ -16,7 +16,12 @@ from bot.db import crud
 from bot.handlers.onboarding import get_onboarding_handler, onb_restart_callback
 from bot.handlers.profile import get_me_handler
 from bot.handlers.food import get_food_handler
-from bot.handlers.workout import get_new_workout_handler, get_log_workout_handler
+from bot.handlers.workout import (
+    is_workout_message, is_new_workout_message,
+    workout_ai_start, workout_ai_continue,
+    new_workout_ai_start, new_workout_ai_continue,
+    is_manual_mode, handle_rpe_input,
+)
 from bot.handlers.commands import (
     get_today_handler, get_weight_handler, get_sleep_handler,
     get_steps_handler, get_week_handler, get_settings_handler,
@@ -24,7 +29,7 @@ from bot.handlers.commands import (
     get_progress_handler, get_suggest_handler, get_debug_handler,
     today, cancel_command,
 )
-from bot.handlers.admin import admin_entry, admin_callback, admin_text_input, _is_admin
+from bot.handlers.admin import admin_entry, admin_callback, admin_text_input, _is_admin, _admin_main_kb
 from bot.scheduler.reminders import scheduler
 from apscheduler.triggers.cron import CronTrigger
 from bot.calculators.tdee import bmr, tdee
@@ -244,11 +249,15 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     elif d == "menu_workout_log":
         await q.edit_message_text(
-            "🏋️ Начни тренировку: /workout",
+            "🏋️ Опиши тренировку:\n"
+            "Упражнения, подходы, вес, длительность.\n"
+            "Пример: «Жим лёжа 80кг 4×8, присед 100кг 5×5, 45 мин»\n\n"
+            "Когда закончишь — напиши «всё».",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("◀️ Назад", callback_data="menu_workout")],
             ]),
         )
+        context.user_data["workout_session"] = {"exercises": [], "duration_minutes": 45, "calories_burned": 0}
 
     elif d == "menu_workout_new":
         await q.edit_message_text(
@@ -288,6 +297,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 [InlineKeyboardButton("🏋️ Вес и тренировки", callback_data="chart_workout_weight")],
                 [InlineKeyboardButton("🔥 Калории (баланс)", callback_data="chart_calories")],
                 [InlineKeyboardButton("😴 Сон", callback_data="chart_sleep")],
+                [InlineKeyboardButton("📅 Прогресс", callback_data="menu_progress")],
                 [InlineKeyboardButton("◀️ В меню", callback_data="menu_main")],
             ]),
         )
@@ -361,7 +371,8 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             lines.append(f"  {'⚠️' if avg_vol == 0 else '📉'} {mg} — {'не тренировался' if avg_vol == 0 else f'ср. объём {avg_vol:.0f}кг'}")
         today_name = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][datetime.now(UTC).weekday()]
         for p in programs:
-            if p.day_of_week.lower() == today_name.lower():
+            p_days = p.day_of_week if isinstance(p.day_of_week, list) else [p.day_of_week]
+            if any(d.lower() == today_name.lower() for d in p_days):
                 ex_names = ", ".join(e.name for e in p.exercises)
                 lines.append(f"\n📅 Сегодня ({today_name}): {p.name}\n   {ex_names}")
                 break
@@ -545,6 +556,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "/week — неделя\n"
             "/suggest — что тренировать\n"
             "/workout — тренировка\n"
+            "/new_workout — создать программу тренировок\n"
             "/me — мой профиль\n"
             "/settings — настройки\n"
             "/debug — отладка\n"
@@ -564,7 +576,10 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
 
     elif d == "menu_admin":
-        await admin_callback(update, context)
+        if not _is_admin(q.from_user.id):
+            await q.answer("Нет доступа.", show_alert=True)
+            return
+        await q.edit_message_text("Админ-панель", reply_markup=_admin_main_kb())
 
 
 async def _show_main_menu(q, user_id: int) -> None:
@@ -738,6 +753,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/week — неделя\n"
         "/suggest — что тренировать\n"
         "/workout — тренировка\n"
+        "/new_workout — создать программу тренировок\n"
         "/settings — настройки\n"
         "/export — экспорт CSV\n\n"
         "Просто пиши текстом — понимаю без команд."
@@ -845,6 +861,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if await admin_text_input(update, context):
         return
 
+    if context.user_data.get("pending_rpe") is not None:
+        await handle_rpe_input(update, context)
+        return
+
+    if is_manual_mode(context) or context.user_data.get("new_workout_ai_history") is not None:
+        await new_workout_ai_continue(update, context)
+        return
+
+    if context.user_data.get("workout_session") is not None:
+        await workout_ai_continue(update, context)
+        return
+
     intent = _match_hardcoded_intent(text)
     if intent == "today":
         await today(update, context)
@@ -875,6 +903,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     tdee_val = tdee(bmr_val, user.activity_level, weight_kg=user.weight_kg)
     targets = daily_targets(tdee_val, user.weight_kg, user.goal)
     state = await get_today_state(user_id)
+
+    if is_new_workout_message(text):
+        await new_workout_ai_start(update, context)
+        return
+
+    if is_workout_message(text):
+        await workout_ai_start(update, context)
+        return
 
     analysis = analyze_message(text, state, targets)
 
@@ -950,7 +986,13 @@ async def quick_button_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if data == "qck_food":
         await q.message.reply_text("Введи что съел, например: 200г гречки с курицей")
     elif data == "qck_workout":
-        await q.message.reply_text("Начни тренировку: /workout")
+        await q.message.reply_text(
+            "🏋️ Опиши тренировку:\n"
+            "Упражнения, подходы, вес, длительность.\n"
+            "Пример: «Жим лёжа 80кг 4×8, присед 100кг 5×5, 45 мин»\n\n"
+            "Когда закончишь — напиши «всё»."
+        )
+        context.user_data["workout_session"] = {"exercises": [], "duration_minutes": 45, "calories_burned": 0}
     elif data == "qck_steps":
         await q.message.reply_text("Сколько прошёл? Напиши число.")
     elif data == "qck_sleep":
@@ -973,9 +1015,17 @@ async def _send_ai_reply(chat, user_id: int, text: str, bot) -> None:
 
     await chat.send_chat_action("typing")
 
-    from bot.ai.trainer import chat_with_trainer
+    from bot.ai.trainer import _build_prompt
+    from bot.ai.actions import handle_message_with_actions
+
     t_start = time.monotonic()
-    result = await chat_with_trainer(user_id, text)
+    built = await _build_prompt(user_id, text)
+    if built is None:
+        await chat.send_message("Сначала выполни /onboarding, чтобы я знал твои параметры.")
+        return
+    system_prompt, user_text = built
+
+    result = await handle_message_with_actions(user_id, user_text, system_prompt, bot)
     elapsed = time.monotonic() - t_start
 
     if result is None:
@@ -991,7 +1041,7 @@ async def _send_ai_reply(chat, user_id: int, text: str, bot) -> None:
         await chat.send_message("ИИ временно недоступен, попробуй позже.")
         return
 
-    logger.info(f"[AI] user={user_id} elapsed={elapsed:.2f}s provider=chat len={len(result)}")
+    logger.info(f"[AI] user={user_id} elapsed={elapsed:.2f}s len={len(result)}")
     await chat.send_message(result)
 
 
@@ -1035,6 +1085,7 @@ async def post_init(app):
         BotCommand("sleep", "😴 Записать сон"),
         BotCommand("week", "📅 Недельная сводка"),
         BotCommand("progress", "📈 Графики прогресса"),
+        BotCommand("new_workout", "➕ Создать программу тренировок"),
         BotCommand("suggest", "💡 Что тренировать"),
         BotCommand("me", "🧍 Мой профиль"),
         BotCommand("settings", "⚙️ Настройки"),
@@ -1105,8 +1156,8 @@ def main() -> None:
     app.add_handler(get_cancel_handler())
     app.add_handler(get_export_handler())
 
-    app.add_handler(get_new_workout_handler())
-    app.add_handler(get_log_workout_handler())
+    app.add_handler(CommandHandler("new_workout", new_workout_ai_start))
+    app.add_handler(CommandHandler("workout", workout_ai_start))
 
     app.add_handler(get_today_handler())
     app.add_handler(get_weight_handler())

@@ -12,6 +12,7 @@ from telegram.ext import (
 from bot.db.base import async_session
 from bot.db import crud
 from bot.db.models import MealLog, WorkoutLog
+from bot.ai.workout_ai import suggest_program as ai_suggest_program
 from bot.cache.redis_client import get_today_state, update_today_state, decrement_today_state, invalidate_context
 from bot.calculators.tdee import bmr, tdee
 from bot.calculators.nutrition import daily_targets
@@ -465,9 +466,9 @@ def get_settings_handler() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[CommandHandler("settings", settings_start)],
         states={
-            SETTINGS_MENU: [CallbackQueryHandler(settings_menu_callback)],
+            SETTINGS_MENU: [CallbackQueryHandler(settings_menu_callback, pattern="^(notif|ai_style|reset)$")],
             SETTINGS_NOTIFICATIONS: [CallbackQueryHandler(settings_toggle_notif)],
-            SETTINGS_AI: [CallbackQueryHandler(settings_set_ai_style)],
+            SETTINGS_AI: [CallbackQueryHandler(settings_set_ai_style, pattern="^(back|set_.+)$")],
         },
         fallbacks=[CommandHandler("cancel", settings_cancel)],
     )
@@ -477,6 +478,27 @@ def get_settings_handler() -> ConversationHandler:
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
+
+    # Check for manual program mode
+    if context.user_data.get("manual_program_step"):
+        context.user_data.pop("manual_program", None)
+        context.user_data.pop("manual_program_step", None)
+        context.user_data.pop("new_workout_ai_history", None)
+        await update.message.reply_text("❌ Создание программы отменено.")
+        return
+
+    # Check for workout session mode (new flow)
+    if context.user_data.get("workout_session") is not None:
+        context.user_data.pop("workout_session", None)
+        await update.message.reply_text("❌ Запись тренировки отменена.")
+        return
+
+    # Check for AI new workout mode
+    if context.user_data.get("new_workout_ai_history") is not None:
+        context.user_data.pop("new_workout_ai_history", None)
+        await update.message.reply_text("❌ Создание программы отменено.")
+        return
+
     async with async_session() as session:
         user = await crud.get_user(session, user_id)
         if not user:
@@ -644,6 +666,30 @@ async def suggest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    # Try AI-powered suggestion first
+    try:
+        ai_result = await ai_suggest_program(update.effective_user.id)
+        if ai_result and ai_result.get("suggested_name"):
+            lines = [f"🤖 ИИ-рекомендация:\n"]
+            lines.append(f"💪 {ai_result['suggested_name']}")
+            if ai_result.get("suggested_days"):
+                lines.append(f"📅 Дни: {', '.join(ai_result['suggested_days'])}")
+            for ex in ai_result.get("suggested_exercises", []):
+                mg = ", ".join(ex.get("muscle_groups", [])) or "—"
+                note = f" — {ex['note']}" if ex.get("note") else ""
+                lines.append(
+                    f"\n🏋️ {ex['name']}"
+                    f"\n   {ex['planned_sets']}×{ex['planned_reps']}, {ex['planned_weight_kg']}кг"
+                    f"\n   Мышцы: {mg}{note}"
+                )
+            if ai_result.get("explanation"):
+                lines.append(f"\n💡 {ai_result['explanation']}")
+            await update.effective_message.reply_text("\n".join(lines))
+            return
+    except Exception as e:
+        logger.warning(f"AI suggest failed, falling back: {e}")
+
+    # Fallback: rule-based suggestion
     muscle_volume: dict[str, float] = {}
     muscle_count: dict[str, int] = {}
     for log in recent_logs:
@@ -687,7 +733,8 @@ async def suggest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     today_name = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][datetime.now(UTC).weekday()]
     today_program = None
     for p in programs:
-        if p.day_of_week.lower() == today_name.lower():
+        p_days = p.day_of_week if isinstance(p.day_of_week, list) else [p.day_of_week]
+        if any(d.lower() == today_name.lower() for d in p_days):
             today_program = p
             break
 

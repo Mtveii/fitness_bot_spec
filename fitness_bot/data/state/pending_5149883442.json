@@ -1,0 +1,1 @@
+{"type": "propose_reminder", "payload": {"advance_warning_minutes": 0, "label": "Поесть", "recurrence": "once", "time": "15:16"}, "confirmation_text": "Хорошо, новое напоминание: «Поесть» в 15:16.\nВсё верно? (да/нет)"}

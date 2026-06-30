@@ -5,7 +5,8 @@ from sqlalchemy.orm import selectinload
 
 from bot.db.models import (
     User, WorkoutProgram, Exercise, WorkoutLog, ExerciseSet,
-    MealLog, FoodItem, SleepLog, SupplementLog, WeightHistory, DailySummary, AIUsageLog
+    MealLog, FoodItem, SleepLog, SupplementLog, WeightHistory, DailySummary, AIUsageLog,
+    _utcnow,
 )
 
 
@@ -211,6 +212,13 @@ async def get_workout_logs_today(session: AsyncSession, user_id: int) -> list[Wo
     return list(result.scalars().all())
 
 
+async def update_workout_rpe(session: AsyncSession, log_id: int, rpe: int) -> None:
+    await session.execute(
+        update(WorkoutLog).where(WorkoutLog.id == log_id).values(subjective_feel=rpe)
+    )
+    await session.commit()
+
+
 async def delete_workout_log(session: AsyncSession, log_id: int, user_id: int) -> bool:
     result = await session.execute(
         delete(WorkoutLog).where(WorkoutLog.id == log_id, WorkoutLog.user_id == user_id)
@@ -297,6 +305,28 @@ async def get_user_programs(session: AsyncSession, user_id: int) -> list[Workout
         .where(WorkoutProgram.user_id == user_id)
     )
     return list(result.scalars().all())
+
+
+async def create_workout_program(session: AsyncSession, user_id: int, name: str) -> WorkoutProgram:
+    program = WorkoutProgram(user_id=user_id, name=name, day_of_week=[])
+    session.add(program)
+    await session.commit()
+    await session.refresh(program)
+    return program
+
+
+async def add_exercise(
+    session: AsyncSession, program_id: int, name: str, type: str = "compound",
+    planned_sets: int = 3, planned_reps: str = "10", planned_weight_kg: float = 0,
+) -> Exercise:
+    exercise = Exercise(
+        program_id=program_id, name=name, type=type,
+        muscle_groups=[], planned_sets=planned_sets,
+        planned_reps=planned_reps, planned_weight_kg=planned_weight_kg,
+    )
+    session.add(exercise)
+    await session.commit()
+    return exercise
 
 
 # ─── AIUsageLog (P3.13) ─────────────────────────────────────

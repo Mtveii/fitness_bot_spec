@@ -148,4 +148,106 @@ async def ask_ai_race(system: str, user_text: str, max_tokens: int = 150):
         if not pending:
             return None
 
-    return None
+
+async def ask_groq_with_tools(system: str, user_text: str, tools: list, max_tokens: int = 300, _retry: bool = False):
+    """
+    Groq с function calling.
+    Возвращает ('text', текст, tok_in, tok_out) или ('tool_call', {name, arguments}, tok_in, tok_out).
+    Возвращает None при ошибке.
+    При tool_use_failed делает один ретрай с усиленным напоминанием о JSON Schema.
+    """
+    client = get_groq_client()
+    if not client:
+        return None
+    try:
+        import json as _json
+        response = await client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_text},
+            ],
+            tools=tools,
+            tool_choice="auto",
+            max_tokens=max_tokens,
+            temperature=0.3,
+        )
+        usage = response.usage
+        message = response.choices[0].message
+        tok_in = usage.prompt_tokens if usage else 0
+        tok_out = usage.completion_tokens if usage else 0
+
+        if message.tool_calls:
+            calls = []
+            for call in message.tool_calls:
+                args = _json.loads(call.function.arguments)
+                calls.append({"name": call.function.name, "arguments": args})
+            return ("tool_calls", calls, tok_in, tok_out)
+
+        return ("text", message.content.strip(), tok_in, tok_out)
+    except Exception as e:
+        err_str = str(e)
+        if "tool_use_failed" in err_str and not _retry:
+            logger.warning(f"Groq tool_use_failed, retrying once: {e}")
+            retry_system = system + "\n\nВАЖНО: при вызове функции строго следуй JSON Schema, не добавляй лишние поля."
+            return await ask_groq_with_tools(retry_system, user_text, tools, max_tokens, _retry=True)
+        logger.warning(f"Groq tools call failed: {e}")
+        return None
+
+
+async def ask_gemini_with_tools(system: str, user_text: str, tools: list, max_tokens: int = 300):
+    """
+    Gemini с function calling (новый google-genai SDK).
+    Возвращает ('text', текст, tok_in, tok_out) или ('tool_calls', [{name, arguments}], tok_in, tok_out).
+    Возвращает None при ошибке.
+    """
+    client = get_gemini_client()
+    if not client:
+        return None
+    try:
+        from google.genai import types
+
+        gemini_tools = [
+            types.Tool(function_declarations=[
+                types.FunctionDeclaration(
+                    name=t["function"]["name"],
+                    description=t["function"]["description"],
+                    parameters=t["function"]["parameters"],
+                )
+                for t in tools
+            ])
+        ]
+
+        response = await client.aio.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=user_text,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                tools=gemini_tools,
+                temperature=0.3,
+                max_output_tokens=max_tokens,
+                http_options=types.HttpOptions(timeout=int(GEMINI_TIMEOUT * 1000)),
+            ),
+        )
+
+        candidate = response.candidates[0]
+        usage = getattr(response, "usage_metadata", None)
+        tok_in = getattr(usage, "prompt_token_count", 0) or 0
+        tok_out = getattr(usage, "candidates_token_count", 0) or 0
+
+        calls = []
+        for part in candidate.content.parts:
+            if part.function_call:
+                calls.append({
+                    "name": part.function_call.name,
+                    "arguments": dict(part.function_call.args),
+                })
+
+        if calls:
+            return ("tool_calls", calls, tok_in, tok_out)
+
+        text = response.text.strip()
+        return ("text", text, tok_in, tok_out)
+    except Exception as e:
+        logger.warning(f"Gemini tools call failed: {e}")
+        return None

@@ -319,3 +319,65 @@ async def set_photo_cache(photo_hash: str, result: dict) -> None:
         )
 
     await asyncio.to_thread(_write)
+
+
+# ─── Pending Actions (P4.20 — function calling confirmation) ──
+
+PENDING_ACTION_TTL = 60 * 5  # 5 минут
+
+
+def _pending_path(user_id: int) -> Path:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    return STATE_DIR / f"pending_{user_id}.json"
+
+
+async def set_pending_action(user_id: int, action_type: str, payload: dict, confirmation_text: str) -> None:
+    data = {
+        "type": action_type,
+        "payload": payload,
+        "confirmation_text": confirmation_text,
+    }
+    if USE_REDIS:
+        try:
+            await redis.set(
+                f"pending_action:{user_id}",
+                json.dumps(data, ensure_ascii=False),
+                ex=PENDING_ACTION_TTL,
+            )
+            return
+        except Exception as e:
+            logger.warning(f"Redis error: {e}")
+    await asyncio.to_thread(
+        lambda: _pending_path(user_id).write_text(
+            json.dumps(data, ensure_ascii=False), encoding="utf-8"
+        )
+    )
+
+
+async def get_pending_action(user_id: int) -> dict | None:
+    if USE_REDIS:
+        try:
+            data = await redis.get(f"pending_action:{user_id}")
+            if data:
+                return json.loads(data)
+        except Exception as e:
+            logger.warning(f"Redis error: {e}")
+    path = _pending_path(user_id)
+    if path.exists():
+        try:
+            return json.loads(await asyncio.to_thread(path.read_text, encoding="utf-8"))
+        except Exception:
+            pass
+    return None
+
+
+async def clear_pending_action(user_id: int) -> None:
+    if USE_REDIS:
+        try:
+            await redis.delete(f"pending_action:{user_id}")
+            return
+        except Exception as e:
+            logger.warning(f"Redis error: {e}")
+    path = _pending_path(user_id)
+    if path.exists():
+        await asyncio.to_thread(path.unlink)

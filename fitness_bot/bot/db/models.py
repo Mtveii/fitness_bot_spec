@@ -54,7 +54,7 @@ class WorkoutProgram(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     name = Column(String(100), nullable=False)
-    day_of_week = Column(String(20), nullable=False)  # monday / tuesday / ...
+    day_of_week = Column(JSON, default=list)  # ["Пн", "Ср", "Пт"]
 
     user = relationship("User", back_populates="workout_programs")
     exercises = relationship("Exercise", back_populates="program", cascade="all, delete-orphan")
