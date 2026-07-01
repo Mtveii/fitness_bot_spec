@@ -4,6 +4,7 @@ import io
 import json
 import hashlib
 import asyncio
+import os
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -17,10 +18,12 @@ from bot.nutrition.usda import usda_search, enrich_with_usda
 logger = logging.getLogger(__name__)
 
 PHOTO_CACHE_TTL = 86400 * 7
-PHOTO_ANALYSIS_TIMEOUT = 15
+PHOTO_ANALYSIS_TIMEOUT = 30
 PHOTO_ANALYSIS_RETRIES = 1
 
 _photo_locks: dict[int, asyncio.Lock] = {}
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif", ".bmp", ".tiff"}
 
 VISION_PROMPT = (
     "Это фото еды или напитка? Если НЕ еда — верни: {\"food_name\": null}\n"
@@ -38,6 +41,17 @@ VISION_PROMPT_STRICT = (
 )
 
 
+def _is_image_document(document) -> bool:
+    if not document:
+        return False
+    mime_type = getattr(document, "mime_type", "") or ""
+    if mime_type.startswith("image/"):
+        return True
+    file_name = getattr(document, "file_name", "") or ""
+    _, ext = os.path.splitext(file_name.lower())
+    return ext in IMAGE_EXTENSIONS
+
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await _handle_photo_inner(update, context)
@@ -52,8 +66,31 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
-async def _handle_photo_inner(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_document_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_image_document(update.message.document):
+        return
+    try:
+        await _handle_photo_inner(update, context, from_document=True)
+    except Exception as e:
+        logger.exception(f"Document photo handler crashed: {e}")
+        try:
+            if update and update.message:
+                await update.message.reply_text(
+                    "Произошла ошибка при обработке фото. Попробуй ещё раз."
+                )
+        except Exception:
+            pass
+
+
+async def _handle_photo_inner(update: Update, context: ContextTypes.DEFAULT_TYPE, from_document: bool = False):
     tg_id = update.effective_user.id
+
+    if not GEMINI_API_KEY:
+        await update.message.reply_text(
+            "Распознавание фото недоступно — не настроен API ключ Gemini. "
+            "Опиши текстом что ты съел — я запишу."
+        )
+        return
 
     lock = _photo_locks.setdefault(tg_id, asyncio.Lock())
     async with lock:
@@ -70,10 +107,34 @@ async def _handle_photo_inner(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         await update.message.reply_text("Анализирую фото...")
 
-        photo_file = await update.message.photo[-1].get_file()
-        photo_bytes = io.BytesIO()
-        await photo_file.download_to_memory(photo_bytes)
-        photo_bytes.seek(0)
+        try:
+            if from_document:
+                doc = update.message.document
+                logger.info(
+                    f"Photo from document: {doc.file_name or 'unknown'} "
+                    f"mime={doc.mime_type} size={doc.file_size}"
+                )
+                file_ref = await doc.get_file()
+            else:
+                photo_msg = update.message.photo[-1] if update.message.photo else None
+                if not photo_msg:
+                    await update.message.reply_text(
+                        "Фото не загрузилось. Попробуй отправить ещё раз."
+                    )
+                    return
+                file_ref = await photo_msg.get_file()
+
+            photo_bytes = io.BytesIO()
+            await file_ref.download_to_memory(photo_bytes)
+            photo_bytes.seek(0)
+        except Exception as e:
+            logger.exception(f"Failed to download photo: {e}")
+            await update.message.reply_text(
+                "Не удалось скачать фото. Попробуй отправить ещё раз."
+            )
+            return
+
+        logger.info(f"Downloaded photo: {photo_bytes.getbuffer().nbytes} bytes")
 
         if photo_bytes.getbuffer().nbytes == 0:
             await update.message.reply_text(
@@ -81,19 +142,26 @@ async def _handle_photo_inner(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
-        photo_md5 = hashlib.md5(photo_bytes.read()).hexdigest()
-        photo_bytes.seek(0)
+        try:
+            photo_md5 = hashlib.md5(photo_bytes.read()).hexdigest()
+            photo_bytes.seek(0)
 
-        cache_key = f"photo_cache:{photo_md5}"
-        food_info = await cache_get(cache_key)
+            cache_key = f"photo_cache:{photo_md5}"
+            food_info = await cache_get(cache_key)
 
-        if food_info and food_info.get("food_name"):
-            logger.info(f"Photo cache hit: {photo_md5[:8]}")
-        else:
-            photo_bytes_compressed = _compress_photo(photo_bytes)
-            food_info = await _analyze_food_photo(photo_bytes_compressed)
             if food_info and food_info.get("food_name"):
-                await cache_set(cache_key, food_info, ttl=PHOTO_CACHE_TTL)
+                logger.info(f"Photo cache hit: {photo_md5[:8]}")
+            else:
+                photo_bytes_compressed = _compress_photo(photo_bytes)
+                food_info = await _analyze_food_photo(photo_bytes_compressed)
+                if food_info and food_info.get("food_name"):
+                    await cache_set(cache_key, food_info, ttl=PHOTO_CACHE_TTL)
+        except Exception as e:
+            logger.exception(f"Vision pipeline error: {e}")
+            await update.message.reply_text(
+                "Ошибка при распознавании фото. Опиши текстом что ты съел — я запишу."
+            )
+            return
 
         if food_info and food_info.get("food_name"):
             has_macros = (
@@ -121,20 +189,27 @@ async def _handle_photo_inner(update: Update, context: ContextTypes.DEFAULT_TYPE
         fat = food_info.get("fat", None)
         carbs = food_info.get("carbs", None)
 
-        async with async_session() as session:
-            meal = MealLog(
-                user_id=user.id,
-                date=datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
-                food_name=food_name,
-                weight_g=estimated_weight,
-                calories=estimated_calories,
-                protein=protein,
-                fat=fat,
-                carbs=carbs,
-                source="photo",
+        try:
+            async with async_session() as session:
+                meal = MealLog(
+                    user_id=user.id,
+                    date=datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
+                    food_name=food_name,
+                    weight_g=estimated_weight,
+                    calories=estimated_calories,
+                    protein=protein,
+                    fat=fat,
+                    carbs=carbs,
+                    source="photo",
+                )
+                session.add(meal)
+                await session.commit()
+        except Exception as e:
+            logger.exception(f"Failed to save meal log: {e}")
+            await update.message.reply_text(
+                "Распознал еду, но не смог сохранить в дневник. Попробуй ещё раз."
             )
-            session.add(meal)
-            await session.commit()
+            return
 
         macros_parts = []
         if protein is not None:
@@ -196,51 +271,79 @@ def _detect_mime_type(photo_bytes: io.BytesIO) -> str:
 
 
 async def _analyze_food_photo(photo_bytes: io.BytesIO) -> dict | None:
-    if not GEMINI_API_KEY:
-        logger.warning("Photo analysis skipped: API key not configured")
-        return None
+    import base64
+    from bot.ai.clients import ask_openrouter_vision, ask_nvidia_vision
 
-    from bot.ai.clients import _get_gemini_client
-    from google.genai import types
-
-    client = _get_gemini_client()
     mime_type = _detect_mime_type(photo_bytes)
 
-    for attempt in range(PHOTO_ANALYSIS_RETRIES + 1):
+    if mime_type == "image/heic":
         try:
-            prompt = VISION_PROMPT if attempt == 0 else VISION_PROMPT_STRICT
-            response = await asyncio.wait_for(
-                client.aio.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=[
-                        prompt,
-                        types.Part.from_bytes(
-                            data=photo_bytes.getvalue(), mime_type=mime_type
-                        ),
-                    ],
-                ),
-                timeout=PHOTO_ANALYSIS_TIMEOUT,
-            )
-            text = response.text.strip()
-            text = text.replace("```json", "").replace("```", "").strip()
-            return json.loads(text)
-        except json.JSONDecodeError as e:
-            logger.warning(
-                f"Photo: invalid JSON from Gemini (attempt {attempt + 1}): "
-                f"{text[:200]}"
-            )
-            if attempt < PHOTO_ANALYSIS_RETRIES:
-                photo_bytes.seek(0)
-                continue
-            return None
-        except asyncio.TimeoutError:
-            logger.warning("Photo analysis timeout")
-            return None
-        except AttributeError as e:
-            logger.error(f"Photo: Gemini API structure error: {e}")
-            return None
+            from PIL import Image
+            photo_bytes.seek(0)
+            img = Image.open(photo_bytes)
+            img.convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=85)
+            buf.seek(0)
+            photo_bytes = buf
+            mime_type = "image/jpeg"
         except Exception as e:
-            logger.warning(f"Photo analysis failed: {e}")
-            return None
+            logger.warning(f"HEIC -> JPEG conversion failed: {e}")
 
+    photo_bytes.seek(0)
+    photo_b64 = base64.b64encode(photo_bytes.read()).decode()
+
+    async def _parse_vision_text(text: str, provider: str) -> dict | None:
+        if not text:
+            return None
+        for attempt in range(2):
+            try:
+                clean = text.replace("```json", "").replace("```", "").strip()
+                result = json.loads(clean)
+                logger.info(f"Vision provider used: {provider}")
+                return result
+            except json.JSONDecodeError:
+                if attempt == 0:
+                    logger.warning(f"{provider} vision: invalid JSON: {text[:200]}")
+                    return None
+        return None
+
+    if GEMINI_API_KEY:
+        from bot.ai.clients import _get_gemini_client
+        from google.genai import types
+        client = _get_gemini_client()
+        for attempt in range(PHOTO_ANALYSIS_RETRIES + 1):
+            try:
+                prompt = VISION_PROMPT if attempt == 0 else VISION_PROMPT_STRICT
+                response = await asyncio.wait_for(
+                    client.aio.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            prompt,
+                            types.Part.from_bytes(data=photo_bytes.getvalue(), mime_type=mime_type),
+                        ],
+                    ),
+                    timeout=PHOTO_ANALYSIS_TIMEOUT,
+                )
+                text = (response.text or "").strip()
+                result = await _parse_vision_text(text, "gemini")
+                if result and result.get("food_name") is not None:
+                    return result
+            except Exception as e:
+                logger.warning(f"Gemini vision attempt {attempt+1} failed: {e}")
+                break
+
+    logger.info("Vision: Gemini failed, trying OpenRouter")
+    text = await ask_openrouter_vision(photo_b64, mime_type, VISION_PROMPT)
+    result = await _parse_vision_text(text or "", "openrouter")
+    if result and result.get("food_name") is not None:
+        return result
+
+    logger.info("Vision: OpenRouter failed, trying NVIDIA NIM")
+    text = await ask_nvidia_vision(photo_b64, mime_type, VISION_PROMPT)
+    result = await _parse_vision_text(text or "", "nvidia")
+    if result and result.get("food_name") is not None:
+        return result
+
+    logger.warning("Vision: all providers failed")
     return None

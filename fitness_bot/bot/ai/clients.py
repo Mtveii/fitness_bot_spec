@@ -1,6 +1,9 @@
 import asyncio
+import base64
 import logging
 from typing import Optional, Callable
+
+import httpx
 
 from bot.config import (
     GROQ_API_KEY, GEMINI_API_KEY, GROQ_MODEL, GEMINI_MODEL,
@@ -234,3 +237,57 @@ async def ask_ai_stream(messages: list, on_token: Callable[[str], None],
         logger.warning("Stream timeout")
     except Exception as e:
         logger.warning(f"Stream error: {e}")
+
+
+async def ask_openrouter_vision(photo_b64: str, mime_type: str, prompt: str) -> str | None:
+    from bot.config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_VISION_MODEL
+    if not OPENROUTER_API_KEY:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                json={
+                    "model": OPENROUTER_VISION_MODEL,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{photo_b64}"}},
+                            {"type": "text", "text": prompt}
+                        ]
+                    }]
+                }
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.warning(f"OpenRouter vision error: {e}")
+        return None
+
+
+async def ask_nvidia_vision(photo_b64: str, mime_type: str, prompt: str) -> str | None:
+    from bot.config import NVIDIA_API_KEY, NVIDIA_BASE_URL, NVIDIA_VISION_MODEL
+    if not NVIDIA_API_KEY:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{NVIDIA_BASE_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {NVIDIA_API_KEY}"},
+                json={
+                    "model": NVIDIA_VISION_MODEL,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{photo_b64}"}},
+                            {"type": "text", "text": prompt}
+                        ]
+                    }]
+                }
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.warning(f"NVIDIA vision error: {e}")
+        return None

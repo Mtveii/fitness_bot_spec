@@ -1,1 +1,1 @@
-{"value": {"type": "workout", "user_id": 999, "data": {"workout_name": "Грудь + трицепс", "exercises": [{"name": "Жим лёжа", "sets": 3, "reps": "8-10", "weight_kg": 80}]}, "created_at": "2026-06-30T18:02:34.999885"}, "expires_at": 1782843154.9999373}
+{"value": {"type": "workout", "user_id": 999, "data": {"workout_name": "Грудь + трицепс", "exercises": [{"name": "Жим лёжа", "sets": 3, "reps": "8-10", "weight_kg": 80}]}, "created_at": "2026-07-01T04:55:07.948220"}, "expires_at": 1782882307.9482756}

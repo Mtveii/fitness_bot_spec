@@ -8,7 +8,7 @@ from bot.config import BOT_TOKEN, ADMIN_ID
 from bot.handlers.commands import start_command, help_command, stats_command
 from bot.handlers.messages import handle_message
 from bot.handlers.onboarding import handle_onboarding
-from bot.handlers.photos import handle_photo
+from bot.handlers.photos import handle_photo, handle_document_image
 from bot.memory.scheduler import setup_scheduler
 from bot.db.base import init_db
 
@@ -133,6 +133,7 @@ async def _async_main():
                 pass
 
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    application.add_handler(MessageHandler(filters.Document.IMAGE, handle_document_image))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_router))
 
     logger.info("Bot started")

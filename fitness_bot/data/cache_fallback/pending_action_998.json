@@ -1,1 +1,1 @@
-{"value": {"type": "reminder", "user_id": 998, "data": {"text": "Поесть", "time": "13:00", "days": ["mon", "wed", "fri"]}, "created_at": "2026-06-30T18:02:35.038093"}, "expires_at": 1782843155.0381253}
+{"value": {"type": "reminder", "user_id": 998, "data": {"text": "Поесть", "time": "13:00", "days": ["mon", "wed", "fri"]}, "created_at": "2026-07-01T04:55:07.984774"}, "expires_at": 1782882307.9848378}
